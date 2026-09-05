@@ -1,52 +1,75 @@
 <?php
-require 'config.php';
-require 'library/SimpleXLSX.php'; // Path ke folder library kamu
+session_start();
 
-use Shuchkin\SimpleXLSX;
+require_once 'config.php';
+require_once 'vendor/autoload.php';
 
-check_login();
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Shared\Date;
 
-if ($_SESSION['role'] !== 'production') {
-    header("Location: index.php?status=error&msg=" . urlencode("Akses Ditolak!"));
-    exit;
-}
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload'])) {
 
-if (isset($_POST['upload'])) {
-    $fileTmpPath = $_FILES['excel_file']['tmp_name'];
+    if (isset($_FILES['excel_file']['tmp_name']) && $_FILES['excel_file']['error'] === UPLOAD_ERR_OK) {
+        $filePath = $_FILES['excel_file']['tmp_name'];
 
-    if ($xlsx = SimpleXLSX::parse($fileTmpPath)) {
-        $rows = $xlsx->rows();
-        $header = $rows[0]; // Baris 1: Header Tanggal
+        try {
+            $reader = IOFactory::createReader('Xlsx');
+            $reader->setReadDataOnly(true);
 
-        // Bersihkan data bulan tersebut agar tidak menumpuk
-        if (isset($header[1])) {
-            $firstDate = date('Y-m-d', strtotime($header[1]));
-            $month = date('m', strtotime($firstDate));
-            $year  = date('Y', strtotime($firstDate));
-            $conn->query("DELETE FROM planning WHERE MONTH(tanggal) = '$month' AND YEAR(tanggal) = '$year'");
-        }
+            $spreadsheet = $reader->load($filePath);
+            $sheet       = $spreadsheet->getActiveSheet();
+            $highestRow  = $sheet->getHighestRow();
 
-        $stmt = $conn->prepare("INSERT INTO planning (model, tanggal, qty_plan) VALUES (?, ?, ?)");
+            // UBAH POSISI KOLOM SESUAI FILE EXCEL KAMU
+            // Contoh di bawah: A=Model, B=Tanggal, C=Shift, D=Qty
+            for ($row = 2; $row <= $highestRow; $row++) {
 
-        // Loop Baris (Mulai baris ke-2)
-        for ($i = 1; $i < count($rows); $i++) {
-            $model = trim($rows[$i][0]);
-            if (empty($model)) continue;
+                $modelRaw = $sheet->getCell("A{$row}")->getFormattedValue();
+                $model    = mysqli_real_escape_string($conn, trim($modelRaw));
 
-            // Loop Kolom Tanggal
-            for ($col = 1; $col < count($header); $col++) {
-                $tanggal = date('Y-m-d', strtotime($header[$col]));
-                $qty     = (int)($rows[$i][$col] ?? 0);
+                // Lewati baris jika ini header "No", "Model", atau baris kosong
+                if (empty($model) || strtolower($model) == 'no' || strtolower($model) == 'model') {
+                    continue;
+                }
 
-                $stmt->bind_param("ssi", $model, $tanggal, $qty);
-                $stmt->execute();
+                // Reading Tanggal (Kolom B)
+                $cellTanggal = $sheet->getCell("B{$row}");
+                $valTanggal  = $cellTanggal->getValue();
+
+                $tanggalFormatted = null;
+                if (!empty($valTanggal)) {
+                    if (Date::isDateTime($cellTanggal)) {
+                        $tanggalFormatted = Date::excelToDateTimeObject($valTanggal)->format('Y-m-d');
+                    } else {
+                        $tanggalFormatted = date('Y-m-d', strtotime($valTanggal));
+                    }
+                }
+
+                // Reading Shift (Kolom C) & Qty (Kolom D)
+                $shift    = mysqli_real_escape_string($conn, trim($sheet->getCell("C{$row}")->getFormattedValue()));
+                $qty_plan = (int) $sheet->getCell("D{$row}")->getValue();
+
+                // Simpan ke database
+                if (!empty($model) && !empty($tanggalFormatted)) {
+                    $query = "INSERT INTO planning (model, tanggal, shift, qty_plan) 
+                              VALUES ('$model', '$tanggalFormatted', '$shift', '$qty_plan')";
+                    mysqli_query($conn, $query);
+                }
             }
-        }
 
-        header("Location: index.php?status=success");
-        exit;
+            header("Location: page/upload_form.php?status=success");
+            exit();
+        } catch (Exception $e) {
+            $msg = urlencode("Gagal membaca file: " . $e->getMessage());
+            header("Location: page/upload_form.php?status=error&msg={$msg}");
+            exit();
+        }
     } else {
-        header("Location: index.php?status=error&msg=" . urlencode(SimpleXLSX::parseError()));
-        exit;
+        $msg = urlencode("File tidak ditemukan atau eror saat unggah.");
+        header("Location: page/upload_form.php?status=error&msg={$msg}");
+        exit();
     }
+} else {
+    header("Location: index.php");
+    exit();
 }

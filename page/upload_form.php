@@ -4,6 +4,7 @@
             <h6 class="mb-0">Upload File Planning Excel (.xlsm / .xlsx)</h6>
         </div>
         <div class="card-body">
+            <!-- Notifikasi Pesan Alert -->
             <?php if (isset($_GET['status'])): ?>
                 <?php if ($_GET['status'] == 'success'): ?>
                     <div class="alert alert-success alert-dismissible fade show py-2" role="alert">
@@ -18,6 +19,8 @@
                 <?php endif; ?>
             <?php endif; ?>
 
+            <!-- Form Upload -->
+            <!-- Karena upload_form.php ada di folder /page/, arahkan action ke ../process.php -->
             <form action="process.php" method="POST" enctype="multipart/form-data" class="row g-3 align-items-center">
                 <div class="col-auto">
                     <input class="form-control" type="file" name="excel_file" accept=".xlsx, .xlsm, .xls" required>

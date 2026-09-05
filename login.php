@@ -12,7 +12,8 @@ if (isset($_POST['login'])) {
     $result = $stmt->get_result();
 
     if ($user = $result->fetch_assoc()) {
-        if (password_verify($password, $user['password'])) {
+        // Cek password langsung tanpa hash (plain text)
+        if ($password == $user['password']) {
             $_SESSION['username'] = $user['username'];
             $_SESSION['role']     = $user['role'];
             header("Location: index.php");
