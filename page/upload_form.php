@@ -14,7 +14,7 @@ if (session_status() === PHP_SESSION_NONE) {
             <?php if (isset($_GET['status'])): ?>
                 <?php if ($_GET['status'] == 'success'): ?>
                     <div class="alert alert-success alert-dismissible fade show py-2" role="alert">
-                        <strong>Berhasil!</strong> Data planning berhasil di-import.
+                        <strong>Berhasil!</strong> Sebanyak <?= htmlspecialchars($_GET['count'] ?? 0) ?> data planning berhasil di-import.
                         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                     </div>
                 <?php elseif ($_GET['status'] == 'error'): ?>
@@ -25,7 +25,7 @@ if (session_status() === PHP_SESSION_NONE) {
                 <?php endif; ?>
             <?php endif; ?>
 
-            <!-- Form Upload -->
+            <!-- Form Upload (Action mengarah ke process.php di root) -->
             <form action="process.php" method="POST" enctype="multipart/form-data" class="row g-3 align-items-center">
                 <div class="col-auto">
                     <input class="form-control" type="file" name="excel_file" accept=".xlsx, .xlsm, .xls" required>

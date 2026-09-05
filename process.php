@@ -1,120 +1,112 @@
 <?php
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-require_once 'config.php';
-require_once 'vendor/autoload.php';
+require 'vendor/autoload.php';
+require 'config.php';
 
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
-use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload'])) {
+if (isset($_POST['upload'])) {
+    $file = $_FILES['excel_file']['tmp_name'];
 
-    if (isset($_FILES['excel_file']['tmp_name']) && $_FILES['excel_file']['error'] === UPLOAD_ERR_OK) {
-        $filePath = $_FILES['excel_file']['tmp_name'];
-
+    if (!empty($file)) {
         try {
-            $reader = IOFactory::createReader('Xlsx');
-            $reader->setReadDataOnly(true);
+            $type = IOFactory::identify($file);
+            $reader = IOFactory::createReader($type);
+            $reader->setReadDataOnly(false); // Baca hasil kalkulasi formula
 
-            $spreadsheet = $reader->load($filePath);
+            $spreadsheet = $reader->load($file);
+            $sheet = $spreadsheet->getActiveSheet();
 
-            foreach ($spreadsheet->getAllSheets() as $sheet) {
-                $sheetName = $sheet->getTitle();
+            $highestColumn = $sheet->getHighestColumn();
+            $highestColumnIndex = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($highestColumn);
 
-                // Skip sheet pendukung
-                if (in_array(strtolower($sheetName), ['cover', 'summary', 'master', 'template'])) {
-                    continue;
-                }
+            $insertedCount = 0;
 
-                $highestRow = $sheet->getHighestRow();
+            // Prepared Statement ke MySQL
+            $stmt = $conn->prepare("INSERT INTO planning (model, tanggal, shift, seq, qty_plan) VALUES (?, ?, ?, ?, ?)");
+            if (!$stmt) {
+                throw new Exception("SQL Prepare Error: " . $conn->error);
+            }
 
-                // 1. Dapatkan daftar Tanggal dan Kolom Qty-nya dari Baris 8
-                $dateBlocks = [];
-                for ($colNum = 14; $colNum <= 200; $colNum += 7) {
-                    // Konversi angka kolom ke huruf (misal: 16 -> P)
-                    $colLetter = Coordinate::stringFromColumnIndex($colNum + 2);
-                    $cellTanggal = $sheet->getCell("{$colLetter}8");
-                    $valTanggal  = $cellTanggal->getValue();
+            // Variable penampung Tanggal & Shift aktif (karena merged cell / offset kolom)
+            $currentDateFormatted = null;
+            $currentShiftNum = 0;
 
-                    if (!empty($valTanggal)) {
-                        $tanggalFormatted = null;
-                        if (Date::isDateTime($cellTanggal) || is_numeric($valTanggal)) {
-                            $tanggalFormatted = Date::excelToDateTimeObject($valTanggal)->format('Y-m-d');
-                        } else {
-                            $parsedTime = strtotime($valTanggal);
-                            if ($parsedTime !== false) {
-                                $tanggalFormatted = date('Y-m-d', $parsedTime);
-                            }
-                        }
+            // Loop Kolom dari A (Index 1) sampai kolom paling kanan
+            for ($col = 1; $col <= $highestColumnIndex; $col++) {
 
-                        if ($tanggalFormatted) {
-                            $dateBlocks[] = [
-                                'tanggal'    => $tanggalFormatted,
-                                'col_shift1' => Coordinate::stringFromColumnIndex($colNum + 2), // Qty Shift I (P)
-                                'col_shift2' => Coordinate::stringFromColumnIndex($colNum + 4), // Qty Shift II (R)
-                                'col_shift3' => Coordinate::stringFromColumnIndex($colNum + 6)  // Qty Shift III (T)
-                            ];
+                // 1. Cek Header Tanggal di Baris ke-8
+                $cellTanggal = $sheet->getCell([$col, 8])->getCalculatedValue();
+
+                if (!empty($cellTanggal) && $cellTanggal !== '-') {
+                    if (is_numeric($cellTanggal) && $cellTanggal > 40000) {
+                        // Konversi Serial Number Excel (misal: 46266 -> 2026-09-01)
+                        $currentDateFormatted = Date::excelToDateTimeObject($cellTanggal)->format('Y-m-d');
+                    } else {
+                        $timestamp = strtotime(trim((string)$cellTanggal));
+                        if ($timestamp !== false && date('Y', $timestamp) > 1970) {
+                            $currentDateFormatted = date('Y-m-d', $timestamp);
                         }
                     }
                 }
 
-                // 2. Loop Baris Data Model (Mulai baris 12)
-                for ($row = 12; $row <= $highestRow; $row++) {
+                // 2. Cek Header Shift di Baris ke-10 (I, II, III)
+                $shiftLabel = strtoupper(trim((string)$sheet->getCell([$col, 10])->getCalculatedValue()));
 
-                    // Ambil Model dari Kolom B
-                    $modelRaw = $sheet->getCell("B{$row}")->getFormattedValue();
-                    $model    = mysqli_real_escape_string($conn, trim($modelRaw));
+                if ($shiftLabel === 'I' || $shiftLabel === '1')   $currentShiftNum = 1;
+                if ($shiftLabel === 'II' || $shiftLabel === '2')  $currentShiftNum = 2;
+                if ($shiftLabel === 'III' || $shiftLabel === '3') $currentShiftNum = 3;
 
-                    // Filter: Hanya proses jika Model berawalan AH- atau AU-
-                    $prefix = strtoupper(substr($model, 0, 3));
-                    if ($prefix !== 'AH-' && $prefix !== 'AU-') {
-                        continue;
-                    }
+                // 3. Cek SubHeader di Baris ke-11 (Mencari kolom Qty)
+                $subHeaderLabel = strtolower(trim((string)$sheet->getCell([$col, 11])->getCalculatedValue()));
 
-                    // 3. Loop tiap blok Tanggal yang ditemukan
-                    foreach ($dateBlocks as $block) {
-                        $tgl = $block['tanggal'];
+                // Eksekusi jika Tanggal aktif tersimpan, Shift terdeteksi, dan kolom berupa 'Qty'
+                if ($currentDateFormatted && $currentShiftNum > 0 && str_contains($subHeaderLabel, 'qty')) {
 
-                        // Shift 1
-                        $qty1 = (int) $sheet->getCell("{$block['col_shift1']}{$row}")->getValue();
-                        if ($qty1 > 0) {
-                            $query = "INSERT INTO planning (model, tanggal, shift, qty_plan) VALUES ('$model', '$tgl', '1', '$qty1')";
-                            mysqli_query($conn, $query);
+                    // Kolom 'Seq.' berada tepat 1 kolom di sebelah kiri 'Qty'
+                    $colSeq = $col - 1;
+
+                    // Loop baris MODEL (Baris 12 sampai 100)
+                    for ($row = 12; $row <= 100; $row++) {
+                        // Ambil Model dari Kolom C (Index 3)
+                        $model = trim((string)$sheet->getCell([3, $row])->getCalculatedValue());
+
+                        if (empty($model)) {
+                            continue;
                         }
 
-                        // Shift 2
-                        $qty2 = (int) $sheet->getCell("{$block['col_shift2']}{$row}")->getValue();
-                        if ($qty2 > 0) {
-                            $query = "INSERT INTO planning (model, tanggal, shift, qty_plan) VALUES ('$model', '$tgl', '2', '$qty2')";
-                            mysqli_query($conn, $query);
-                        }
+                        // Ambil nilai Qty
+                        $qty = $sheet->getCell([$col, $row])->getCalculatedValue();
+                        $qtyClean = str_replace(['.', ',', ' '], '', $qty);
 
-                        // Shift 3
-                        $qty3 = (int) $sheet->getCell("{$block['col_shift3']}{$row}")->getValue();
-                        if ($qty3 > 0) {
-                            $query = "INSERT INTO planning (model, tanggal, shift, qty_plan) VALUES ('$model', '$tgl', '3', '$qty3')";
-                            mysqli_query($conn, $query);
+                        // Ambil nilai Seq (Urutan)
+                        $seqVal = $sheet->getCell([$colSeq, $row])->getCalculatedValue();
+                        $seqClean = is_numeric($seqVal) ? (int)$seqVal : null;
+
+                        // Insert ke DB jika Qty berupa angka dan > 0
+                        if (is_numeric($qtyClean) && (int)$qtyClean > 0) {
+                            $qtyInt = (int)$qtyClean;
+                            $stmt->bind_param("ssiii", $model, $currentDateFormatted, $currentShiftNum, $seqClean, $qtyInt);
+                            $stmt->execute();
+                            $insertedCount++;
                         }
                     }
                 }
             }
 
-            header("Location: index.php?status=success");
+            $stmt->close();
+
+            header("Location: index.php?page=upload_form&status=success&count=" . $insertedCount);
             exit();
         } catch (Exception $e) {
-            $msg = urlencode("Gagal membaca file: " . $e->getMessage());
-            header("Location: index.php?status=error&msg={$msg}");
+            header("Location: index.php?page=upload_form&status=error&msg=" . urlencode($e->getMessage()));
             exit();
         }
     } else {
-        $msg = urlencode("File tidak ditemukan.");
-        header("Location: index.php?status=error&msg={$msg}");
+        header("Location: index.php?page=upload_form&status=error&msg=" . urlencode("File tidak ditemukan."));
         exit();
     }
 } else {
-    header("Location: index.php");
+    header("Location: index.php?page=upload_form");
     exit();
 }
