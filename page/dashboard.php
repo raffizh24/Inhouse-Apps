@@ -132,7 +132,7 @@ function render_planning_table($title, $badge_color, $models, $dates, $planning_
 
         <form method="GET" action="index.php" class="d-flex align-items-center">
             <input type="hidden" name="page" value="dashboard">
-            <label class="me-2 fw-bold small text-muted">Pilih Bulan:</label>
+            <label class="me-2 fw-bold small text-muted">Bulan:</label>
             <input type="month" name="month" value="<?= htmlspecialchars($selected_month) ?>" class="form-control form-control-sm" onchange="this.form.submit()">
         </form>
     </div>

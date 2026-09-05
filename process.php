@@ -96,17 +96,17 @@ if (isset($_POST['upload'])) {
 
             $stmt->close();
 
-            header("Location: index.php?page=upload_form&status=success&count=" . $insertedCount);
+            header("Location: index.php?page=upload_plan&status=success&count=" . $insertedCount);
             exit();
         } catch (Exception $e) {
-            header("Location: index.php?page=upload_form&status=error&msg=" . urlencode($e->getMessage()));
+            header("Location: index.php?page=upload_plan&status=error&msg=" . urlencode($e->getMessage()));
             exit();
         }
     } else {
-        header("Location: index.php?page=upload_form&status=error&msg=" . urlencode("File tidak ditemukan."));
+        header("Location: index.php?page=upload_plan&status=error&msg=" . urlencode("File tidak ditemukan."));
         exit();
     }
 } else {
-    header("Location: index.php?page=upload_form");
+    header("Location: index.php?page=upload_plan");
     exit();
 }
