@@ -1,11 +1,14 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 require_once 'config.php';
 require_once 'vendor/autoload.php';
 
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload'])) {
 
@@ -17,56 +20,98 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload'])) {
             $reader->setReadDataOnly(true);
 
             $spreadsheet = $reader->load($filePath);
-            $sheet       = $spreadsheet->getActiveSheet();
-            $highestRow  = $sheet->getHighestRow();
 
-            // UBAH POSISI KOLOM SESUAI FILE EXCEL KAMU
-            // Contoh di bawah: A=Model, B=Tanggal, C=Shift, D=Qty
-            for ($row = 2; $row <= $highestRow; $row++) {
+            foreach ($spreadsheet->getAllSheets() as $sheet) {
+                $sheetName = $sheet->getTitle();
 
-                $modelRaw = $sheet->getCell("A{$row}")->getFormattedValue();
-                $model    = mysqli_real_escape_string($conn, trim($modelRaw));
-
-                // Lewati baris jika ini header "No", "Model", atau baris kosong
-                if (empty($model) || strtolower($model) == 'no' || strtolower($model) == 'model') {
+                // Skip sheet pendukung
+                if (in_array(strtolower($sheetName), ['cover', 'summary', 'master', 'template'])) {
                     continue;
                 }
 
-                // Reading Tanggal (Kolom B)
-                $cellTanggal = $sheet->getCell("B{$row}");
-                $valTanggal  = $cellTanggal->getValue();
+                $highestRow = $sheet->getHighestRow();
 
-                $tanggalFormatted = null;
-                if (!empty($valTanggal)) {
-                    if (Date::isDateTime($cellTanggal)) {
-                        $tanggalFormatted = Date::excelToDateTimeObject($valTanggal)->format('Y-m-d');
-                    } else {
-                        $tanggalFormatted = date('Y-m-d', strtotime($valTanggal));
+                // 1. Dapatkan daftar Tanggal dan Kolom Qty-nya dari Baris 8
+                $dateBlocks = [];
+                for ($colNum = 14; $colNum <= 200; $colNum += 7) {
+                    // Konversi angka kolom ke huruf (misal: 16 -> P)
+                    $colLetter = Coordinate::stringFromColumnIndex($colNum + 2);
+                    $cellTanggal = $sheet->getCell("{$colLetter}8");
+                    $valTanggal  = $cellTanggal->getValue();
+
+                    if (!empty($valTanggal)) {
+                        $tanggalFormatted = null;
+                        if (Date::isDateTime($cellTanggal) || is_numeric($valTanggal)) {
+                            $tanggalFormatted = Date::excelToDateTimeObject($valTanggal)->format('Y-m-d');
+                        } else {
+                            $parsedTime = strtotime($valTanggal);
+                            if ($parsedTime !== false) {
+                                $tanggalFormatted = date('Y-m-d', $parsedTime);
+                            }
+                        }
+
+                        if ($tanggalFormatted) {
+                            $dateBlocks[] = [
+                                'tanggal'    => $tanggalFormatted,
+                                'col_shift1' => Coordinate::stringFromColumnIndex($colNum + 2), // Qty Shift I (P)
+                                'col_shift2' => Coordinate::stringFromColumnIndex($colNum + 4), // Qty Shift II (R)
+                                'col_shift3' => Coordinate::stringFromColumnIndex($colNum + 6)  // Qty Shift III (T)
+                            ];
+                        }
                     }
                 }
 
-                // Reading Shift (Kolom C) & Qty (Kolom D)
-                $shift    = mysqli_real_escape_string($conn, trim($sheet->getCell("C{$row}")->getFormattedValue()));
-                $qty_plan = (int) $sheet->getCell("D{$row}")->getValue();
+                // 2. Loop Baris Data Model (Mulai baris 12)
+                for ($row = 12; $row <= $highestRow; $row++) {
 
-                // Simpan ke database
-                if (!empty($model) && !empty($tanggalFormatted)) {
-                    $query = "INSERT INTO planning (model, tanggal, shift, qty_plan) 
-                              VALUES ('$model', '$tanggalFormatted', '$shift', '$qty_plan')";
-                    mysqli_query($conn, $query);
+                    // Ambil Model dari Kolom B
+                    $modelRaw = $sheet->getCell("B{$row}")->getFormattedValue();
+                    $model    = mysqli_real_escape_string($conn, trim($modelRaw));
+
+                    // Filter: Hanya proses jika Model berawalan AH- atau AU-
+                    $prefix = strtoupper(substr($model, 0, 3));
+                    if ($prefix !== 'AH-' && $prefix !== 'AU-') {
+                        continue;
+                    }
+
+                    // 3. Loop tiap blok Tanggal yang ditemukan
+                    foreach ($dateBlocks as $block) {
+                        $tgl = $block['tanggal'];
+
+                        // Shift 1
+                        $qty1 = (int) $sheet->getCell("{$block['col_shift1']}{$row}")->getValue();
+                        if ($qty1 > 0) {
+                            $query = "INSERT INTO planning (model, tanggal, shift, qty_plan) VALUES ('$model', '$tgl', '1', '$qty1')";
+                            mysqli_query($conn, $query);
+                        }
+
+                        // Shift 2
+                        $qty2 = (int) $sheet->getCell("{$block['col_shift2']}{$row}")->getValue();
+                        if ($qty2 > 0) {
+                            $query = "INSERT INTO planning (model, tanggal, shift, qty_plan) VALUES ('$model', '$tgl', '2', '$qty2')";
+                            mysqli_query($conn, $query);
+                        }
+
+                        // Shift 3
+                        $qty3 = (int) $sheet->getCell("{$block['col_shift3']}{$row}")->getValue();
+                        if ($qty3 > 0) {
+                            $query = "INSERT INTO planning (model, tanggal, shift, qty_plan) VALUES ('$model', '$tgl', '3', '$qty3')";
+                            mysqli_query($conn, $query);
+                        }
+                    }
                 }
             }
 
-            header("Location: page/upload_form.php?status=success");
+            header("Location: index.php?status=success");
             exit();
         } catch (Exception $e) {
             $msg = urlencode("Gagal membaca file: " . $e->getMessage());
-            header("Location: page/upload_form.php?status=error&msg={$msg}");
+            header("Location: index.php?status=error&msg={$msg}");
             exit();
         }
     } else {
-        $msg = urlencode("File tidak ditemukan atau eror saat unggah.");
-        header("Location: page/upload_form.php?status=error&msg={$msg}");
+        $msg = urlencode("File tidak ditemukan.");
+        header("Location: index.php?status=error&msg={$msg}");
         exit();
     }
 } else {

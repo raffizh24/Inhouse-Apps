@@ -1,4 +1,10 @@
-<?php if ($_SESSION['role'] == 'production'): ?>
+<?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+?>
+
+<?php if (isset($_SESSION['role']) && $_SESSION['role'] == 'production'): ?>
     <div class="card shadow-sm mb-4">
         <div class="card-header bg-primary text-white">
             <h6 class="mb-0">Upload File Planning Excel (.xlsm / .xlsx)</h6>
@@ -20,7 +26,6 @@
             <?php endif; ?>
 
             <!-- Form Upload -->
-            <!-- Karena upload_form.php ada di folder /page/, arahkan action ke ../process.php -->
             <form action="process.php" method="POST" enctype="multipart/form-data" class="row g-3 align-items-center">
                 <div class="col-auto">
                     <input class="form-control" type="file" name="excel_file" accept=".xlsx, .xlsm, .xls" required>
