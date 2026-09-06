@@ -31,10 +31,21 @@ $page = htmlspecialchars($_GET['page'] ?? 'dashboard', ENT_QUOTES, 'UTF-8');
                             Dashboard & Plan
                         </a>
                     </li>
+
+                    <!-- MENU KHUSUS PRODUCTION -->
                     <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'production'): ?>
                         <li class="nav-item">
                             <a class="nav-link <?= $page === 'upload_actual' ? 'active fw-bold' : '' ?>" href="index.php?page=upload_actual">
                                 Pengambilan Part
+                            </a>
+                        </li>
+                    <?php endif; ?>
+
+                    <!-- MENU KHUSUS WAREHOUSE (ATAU PRODUCTION BISA LIHAT JUGA) -->
+                    <?php if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['warehouse', 'production'])): ?>
+                        <li class="nav-item">
+                            <a class="nav-link <?= $page === 'warehouse_view' ? 'active fw-bold' : '' ?>" href="index.php?page=warehouse_view">
+                                Monitoring Warehouse
                             </a>
                         </li>
                     <?php endif; ?>
@@ -60,6 +71,14 @@ $page = htmlspecialchars($_GET['page'] ?? 'dashboard', ENT_QUOTES, 'UTF-8');
                     include 'page/upload_actual.php';
                 } else {
                     echo "<div class='alert alert-danger'>Akses ditolak. Halaman khusus Production.</div>";
+                }
+                break;
+
+            case 'warehouse_view':
+                if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['warehouse', 'production'])) {
+                    include 'page/warehouse_view.php';
+                } else {
+                    echo "<div class='alert alert-danger'>Akses ditolak. Halaman khusus Warehouse.</div>";
                 }
                 break;
 

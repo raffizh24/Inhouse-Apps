@@ -93,7 +93,7 @@ $query_summary_he = mysqli_query($conn, "
         shift, 
         SUM(qty) AS total_qty 
     FROM `seid_ac_hepi`.`history_lot` 
-    WHERE DATE(tgl_lot) = '$currentDate' AND status = 'IN'
+    WHERE DATE(tgl_lot) = '$currentDate' AND status = 'OUT'
     GROUP BY part_code, shift
 ");
 
