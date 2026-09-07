@@ -12,7 +12,7 @@ if (isset($_POST['upload'])) {
         try {
             $type = IOFactory::identify($file);
             $reader = IOFactory::createReader($type);
-            $reader->setReadDataOnly(false); // Baca hasil kalkulasi formula
+            $reader->setReadDataOnly(false);
 
             $spreadsheet = $reader->load($file);
             $sheet = $spreadsheet->getActiveSheet();
@@ -20,19 +20,54 @@ if (isset($_POST['upload'])) {
             $highestColumn = $sheet->getHighestColumn();
             $highestColumnIndex = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($highestColumn);
 
+            // =========================================================================
+            // STEP 1: Deteksi Bulan & Tahun Pertama dari Excel untuk Clean-up Data Lama
+            // =========================================================================
+            $detectedMonth = null;
+            $detectedYear = null;
+
+            for ($colCheck = 1; $colCheck <= $highestColumnIndex; $colCheck++) {
+                $cellVal = $sheet->getCell([$colCheck, 8])->getCalculatedValue();
+                if (!empty($cellVal) && $cellVal !== '-') {
+                    $dt = null;
+                    if (is_numeric($cellVal) && $cellVal > 40000) {
+                        $dt = Date::excelToDateTimeObject($cellVal);
+                    } else {
+                        $ts = strtotime(trim((string)$cellVal));
+                        if ($ts !== false && date('Y', $ts) > 1970) {
+                            $dt = new DateTime(date('Y-m-d', $ts));
+                        }
+                    }
+
+                    if ($dt) {
+                        $detectedMonth = $dt->format('m');
+                        $detectedYear = $dt->format('Y');
+                        break; // Ambil sampel tanggal pertama lalu stop loop check
+                    }
+                }
+            }
+
+            // Jika tanggal bulan terdeteksi, hapus data lama di bulan & tahun tersebut
+            if ($detectedMonth && $detectedYear) {
+                $stmtDelete = $conn->prepare("DELETE FROM planning WHERE MONTH(tanggal) = ? AND YEAR(tanggal) = ?");
+                $stmtDelete->bind_param("ss", $detectedMonth, $detectedYear);
+                $stmtDelete->execute();
+                $stmtDelete->close();
+            }
+
+            // =========================================================================
+            // STEP 2: Proses Insert Data Baru
+            // =========================================================================
             $insertedCount = 0;
 
-            // Prepared Statement ke MySQL
             $stmt = $conn->prepare("INSERT INTO planning (model, tanggal, shift, seq, qty_plan) VALUES (?, ?, ?, ?, ?)");
             if (!$stmt) {
                 throw new Exception("SQL Prepare Error: " . $conn->error);
             }
 
-            // Variable penampung Tanggal & Shift aktif (karena merged cell / offset kolom)
             $currentDateFormatted = null;
             $currentShiftNum = 0;
 
-            // Loop Kolom dari A (Index 1) sampai kolom paling kanan
             for ($col = 1; $col <= $highestColumnIndex; $col++) {
 
                 // 1. Cek Header Tanggal di Baris ke-8
@@ -40,7 +75,6 @@ if (isset($_POST['upload'])) {
 
                 if (!empty($cellTanggal) && $cellTanggal !== '-') {
                     if (is_numeric($cellTanggal) && $cellTanggal > 40000) {
-                        // Konversi Serial Number Excel (misal: 46266 -> 2026-09-01)
                         $currentDateFormatted = Date::excelToDateTimeObject($cellTanggal)->format('Y-m-d');
                     } else {
                         $timestamp = strtotime(trim((string)$cellTanggal));
@@ -50,40 +84,33 @@ if (isset($_POST['upload'])) {
                     }
                 }
 
-                // 2. Cek Header Shift di Baris ke-10 (I, II, III)
+                // 2. Cek Header Shift di Baris ke-10
                 $shiftLabel = strtoupper(trim((string)$sheet->getCell([$col, 10])->getCalculatedValue()));
 
                 if ($shiftLabel === 'I' || $shiftLabel === '1')   $currentShiftNum = 1;
                 if ($shiftLabel === 'II' || $shiftLabel === '2')  $currentShiftNum = 2;
                 if ($shiftLabel === 'III' || $shiftLabel === '3') $currentShiftNum = 3;
 
-                // 3. Cek SubHeader di Baris ke-11 (Mencari kolom Qty)
+                // 3. Cek SubHeader di Baris ke-11
                 $subHeaderLabel = strtolower(trim((string)$sheet->getCell([$col, 11])->getCalculatedValue()));
 
-                // Eksekusi jika Tanggal aktif tersimpan, Shift terdeteksi, dan kolom berupa 'Qty'
                 if ($currentDateFormatted && $currentShiftNum > 0 && str_contains($subHeaderLabel, 'qty')) {
 
-                    // Kolom 'Seq.' berada tepat 1 kolom di sebelah kiri 'Qty'
                     $colSeq = $col - 1;
 
-                    // Loop baris MODEL (Baris 12 sampai 100)
                     for ($row = 12; $row <= 100; $row++) {
-                        // Ambil Model dari Kolom C (Index 3)
                         $model = trim((string)$sheet->getCell([3, $row])->getCalculatedValue());
 
                         if (empty($model)) {
                             continue;
                         }
 
-                        // Ambil nilai Qty
                         $qty = $sheet->getCell([$col, $row])->getCalculatedValue();
                         $qtyClean = str_replace(['.', ',', ' '], '', $qty);
 
-                        // Ambil nilai Seq (Urutan)
                         $seqVal = $sheet->getCell([$colSeq, $row])->getCalculatedValue();
                         $seqClean = is_numeric($seqVal) ? (int)$seqVal : null;
 
-                        // Insert ke DB jika Qty berupa angka dan > 0
                         if (is_numeric($qtyClean) && (int)$qtyClean > 0) {
                             $qtyInt = (int)$qtyClean;
                             $stmt->bind_param("ssiii", $model, $currentDateFormatted, $currentShiftNum, $seqClean, $qtyInt);
