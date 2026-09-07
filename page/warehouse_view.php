@@ -20,21 +20,32 @@ if (!function_exists('getProductionDateOnly')) {
     }
 }
 
-// $now = '2026-09-04 17:00:00';
 $now            = date('Y-m-d H:i:s');
 $currentDate    = getProductionDateOnly($now);
 $activeCategory = $_GET['category'] ?? 'injection';
 
 // ==========================================
-// 1. QUERY LIVE MONITORING PARTS PER SHIFT (Berdasarkan Gambar)
+// 1. QUERY LIVE MONITORING PARTS PER SHIFT
 // ==========================================
 
 // --- A. PAINTING PARTS ---
 $paintingParts = [];
 $qPpLive = mysqli_query($conn, "
     SELECT 
-        t.part_code, 
-        p.part_name,
+        CASE 
+            WHEN t.part_code LIKE 'CCHS-B829%' THEN 'CCHS-B829JBTA'
+            WHEN t.part_code LIKE 'GCAB-A646%' THEN 'GCAB-A646JBTA'
+            WHEN t.part_code LIKE 'GCAB-A767%' THEN 'GCAB-A767JBTA'
+            WHEN t.part_code LIKE 'PPLT-B282%' THEN 'PPLT-B282JBTA'
+            ELSE TRIM(t.part_code)
+        END AS part_code_custom,
+        CASE 
+            WHEN t.part_code LIKE 'CCHS-B829%' THEN 'Base Pan'
+            WHEN t.part_code LIKE 'GCAB-A646%' THEN 'Top Table'
+            WHEN t.part_code LIKE 'GCAB-A767%' THEN 'Front Panel'
+            WHEN t.part_code LIKE 'PPLT-B282%' THEN 'Side Cover R'
+            ELSE COALESCE(p.part_name, '-')
+        END AS part_name_custom,
         SUM(CASE WHEN t.shift = 1 THEN t.qty ELSE 0 END) AS s1,
         SUM(CASE WHEN t.shift = 2 THEN t.qty ELSE 0 END) AS s2,
         SUM(CASE WHEN t.shift = 3 THEN t.qty ELSE 0 END) AS s3
@@ -46,16 +57,66 @@ $qPpLive = mysqli_query($conn, "
             ELSE DATE(t.date_tr)
         END
     ) = '$currentDate' AND t.status = 'ASSY'
-    GROUP BY t.part_code, p.part_name
-    ORDER BY t.part_code ASC
+    GROUP BY part_code_custom, part_name_custom
+    ORDER BY part_code_custom ASC
 ");
 if ($qPpLive) {
     while ($row = mysqli_fetch_assoc($qPpLive)) {
-        $paintingParts[] = $row;
+        $paintingParts[] = [
+            'part_code' => $row['part_code_custom'],
+            'part_name' => $row['part_name_custom'],
+            's1'        => $row['s1'],
+            's2'        => $row['s2'],
+            's3'        => $row['s3']
+        ];
     }
 }
 
-// --- B. INJECTION PARTS ---
+// --- B. PRESS PARTS ---
+$pressParts = [];
+$qPressLive = mysqli_query($conn, "
+    SELECT 
+        CASE 
+            WHEN t.part_code LIKE 'GCAB-A646%' THEN 'GCAB-A646JBPZ'
+            WHEN t.part_code LIKE 'GCAB-A767%' THEN 'GCAB-A767JBPZ'
+            WHEN t.part_code LIKE 'LCHS-A800%' OR t.part_code LIKE 'CCHS-B829%' THEN 'LCHS-A800JBPZ'
+            WHEN t.part_code LIKE 'PPLT-B282%' THEN 'PPLT-B282JBPZ'
+            ELSE TRIM(t.part_code)
+        END AS part_code_custom,
+        CASE 
+            WHEN t.part_code LIKE 'GCAB-A646%' THEN 'Top Table'
+            WHEN t.part_code LIKE 'GCAB-A767%' THEN 'Front Panel'
+            WHEN t.part_code LIKE 'LCHS-A800%' OR t.part_code LIKE 'CCHS-B829%' THEN 'Base Pan'
+            WHEN t.part_code LIKE 'PPLT-B282%' THEN 'Side Cover R'
+            ELSE COALESCE(p.part_name, '-')
+        END AS part_name_custom,
+        SUM(CASE WHEN t.shift = 1 THEN t.qty ELSE 0 END) AS s1,
+        SUM(CASE WHEN t.shift = 2 THEN t.qty ELSE 0 END) AS s2,
+        SUM(CASE WHEN t.shift = 3 THEN t.qty ELSE 0 END) AS s3
+    FROM `seid_ac_pp`.`transaction` t
+    LEFT JOIN `seid_ac_pp`.`part` p ON t.part_code = p.part_code
+    WHERE (
+        CASE 
+            WHEN TIME(t.date_tr) < '09:00:00' THEN DATE(DATE_SUB(t.date_tr, INTERVAL 1 DAY))
+            ELSE DATE(t.date_tr)
+        END
+    ) = '$currentDate' AND t.status = 'PAINT'
+    GROUP BY part_code_custom, part_name_custom
+    ORDER BY part_code_custom ASC
+");
+if ($qPressLive) {
+    while ($row = mysqli_fetch_assoc($qPressLive)) {
+        $pressParts[] = [
+            'part_code' => $row['part_code_custom'],
+            'part_name' => $row['part_name_custom'],
+            's1'        => $row['s1'],
+            's2'        => $row['s2'],
+            's3'        => $row['s3']
+        ];
+    }
+}
+
+// --- C. INJECTION PARTS ---
 $injectionParts = [];
 $qInjLive = mysqli_query($conn, "
     SELECT 
@@ -81,7 +142,7 @@ if ($qInjLive) {
     }
 }
 
-// --- C. HE PARTS ---
+// --- D. HE PARTS ---
 $heParts = [];
 $qHeLive = mysqli_query($conn, "
     SELECT 
@@ -90,7 +151,7 @@ $qHeLive = mysqli_query($conn, "
             WHEN t.coupon LIKE 'CDR%' THEN 'DCON-B105JBEZ'
             WHEN t.coupon LIKE 'SRI%' THEN 'DCON-B074JBEZ'
             WHEN t.coupon LIKE 'DRI%' THEN 'DCON-B075JBEZ'
-            WHEN t.coupon LIKE 'EVA%' THEN 'PEVA-B243JBEZ'
+            WHEN t.coupon LIKE 'EVA%' THEN 'PEVA-B161JBPZ'
             ELSE TRIM(t.coupon)
         END AS part_code,
         CASE 
@@ -120,36 +181,54 @@ if ($qHeLive) {
     }
 }
 
-// --- D. PIPING PARTS ---
+// --- E. PIPING PARTS ---
 $pipingParts = [];
 $qPipLive = mysqli_query($conn, "
     SELECT 
         CASE 
-            WHEN t.coupon LIKE 'ALL-IDU%' THEN 'ALL-IDU'
-            WHEN t.coupon LIKE 'SUC-IVT%' THEN 'SUC-IVT'
-            ELSE CONCAT(SUBSTRING_INDEX(t.coupon, '-', 1), '-', SUBSTRING_INDEX(SUBSTRING_INDEX(t.coupon, '-', 2), '-', -1))
+            WHEN t.coupon LIKE 'ALL-IDU%' THEN 'CPIPCC533JBKZ'
+            WHEN t.coupon LIKE 'SUC-5K2%' THEN 'CPIPCC616JBKZ'
+            WHEN t.coupon LIKE 'SUC-9K2%' THEN 'CPIPCC625JBKZ'
+            WHEN t.coupon LIKE 'SUC-IVT%' THEN 'CPIPCC571JBKZ'
+            WHEN t.coupon LIKE 'SUC-13K%' THEN 'CPIPCC624JBKZ'
+            WHEN t.coupon LIKE 'SUC-9CY%' THEN 'CPIPCK426JBKZ'
+            WHEN t.coupon LIKE 'DIS-5K2%' THEN 'CCYC-F289JBKZ'
+            WHEN t.coupon LIKE 'DIS-7K1%' THEN 'CCYC-F091JBKZ'
+            WHEN t.coupon LIKE 'DIS-9K2%' THEN 'CCYC-F255JBKZ'
+            WHEN t.coupon LIKE 'DIS-68K%' THEN 'CPIPCC572JBKZ'
+            WHEN t.coupon LIKE 'DIS-10K%' THEN 'CPIPCC561JBKZ'
+            WHEN t.coupon LIKE 'DIS-13K%' THEN 'CPIPCC623JBKZ'
+            WHEN t.coupon LIKE 'DIS-9CY%' THEN 'CCYC-F311JBKZ'
+            WHEN t.coupon LIKE 'CAP-5K2%' THEN 'CCPY-A455JBKZ'
+            WHEN t.coupon LIKE 'CAP-7K1%' THEN 'CCPY-A456JBKZ'
+            WHEN t.coupon LIKE 'CAP-9K2%' THEN 'CCPY-A457JBKZ'
+            WHEN t.coupon LIKE 'CAP-68K%' THEN 'CCPY-A458JBKZ'
+            WHEN t.coupon LIKE 'CAP-10K%' THEN 'CCPY-A459JBKZ'
+            WHEN t.coupon LIKE 'CAP-13K%' THEN 'CCPY-A516JBKZ'
+            WHEN t.coupon LIKE 'CAP-9CY%' THEN 'PCPY-C007JB1Z'
+            ELSE TRIM(t.coupon)
         END AS part_code,
         CASE 
-            WHEN t.coupon LIKE 'CAP-5K2%' THEN 'Capillary 5K2'
-            WHEN t.coupon LIKE 'CAP-7K1%' THEN 'Capillary 7K'
-            WHEN t.coupon LIKE 'CAP-9K2%' THEN 'Capillary 9K2'
-            WHEN t.coupon LIKE 'CAP-9CY%' THEN 'Capillary 9CAY'
-            WHEN t.coupon LIKE 'CAP-68K%' THEN 'Capillary 6K & 8K'
-            WHEN t.coupon LIKE 'CAP-10K%' THEN 'Capillary 10K'
-            WHEN t.coupon LIKE 'CAP-13K%' THEN 'Capillary 13K'
-            WHEN t.coupon LIKE 'DIS-5K2%' THEN 'Discharge 5K2'
-            WHEN t.coupon LIKE 'DIS-7K1%' THEN 'Discharge 7K'
-            WHEN t.coupon LIKE 'DIS-9K2%' THEN 'Discharge 9K2'
-            WHEN t.coupon LIKE 'DIS-9CY%' THEN 'Discharge 9CAY'
-            WHEN t.coupon LIKE 'DIS-68K%' THEN 'Discharge 6K & 8K'
-            WHEN t.coupon LIKE 'DIS-10K%' THEN 'Discharge 10K'
-            WHEN t.coupon LIKE 'DIS-13K%' THEN 'Discharge 13K'
-            WHEN t.coupon LIKE 'SUC-5K2%' THEN 'Suction 5K2 & 7K'
-            WHEN t.coupon LIKE 'SUC-9K2%' THEN 'Suction 9K2'
-            WHEN t.coupon LIKE 'SUC-9CY%' THEN 'Suction 9CAY'
-            WHEN t.coupon LIKE 'SUC-IVT%' THEN 'Suction 6K, 8K & 10K'
-            WHEN t.coupon LIKE 'SUC-13K%' THEN 'Suction 13K'
-            WHEN t.coupon LIKE 'ALL-IDU%' THEN 'Tube Assy - Indoor'
+            WHEN t.coupon LIKE 'ALL-IDU%' THEN 'TUBE ASSY'
+            WHEN t.coupon LIKE 'SUC-5K2%' THEN 'SUCTION 7K/ 5K-2'
+            WHEN t.coupon LIKE 'SUC-9K2%' THEN 'SUCTION 9K2'
+            WHEN t.coupon LIKE 'SUC-IVT%' THEN 'SUCTION 6K/8K/10K'
+            WHEN t.coupon LIKE 'SUC-13K%' THEN 'SUCTION MUFFLER 13K TUBE 1'
+            WHEN t.coupon LIKE 'SUC-9CY%' THEN 'SUCTION 9CAY'
+            WHEN t.coupon LIKE 'DIS-5K2%' THEN 'DISCHARGE 5K2'
+            WHEN t.coupon LIKE 'DIS-7K1%' THEN 'DISCHARGE 7K'
+            WHEN t.coupon LIKE 'DIS-9K2%' THEN 'DISCHARGE 9K2'
+            WHEN t.coupon LIKE 'DIS-68K%' THEN 'DISCHARGE 6K & 8K'
+            WHEN t.coupon LIKE 'DIS-10K%' THEN 'DISCHARGE 10K'
+            WHEN t.coupon LIKE 'DIS-13K%' THEN 'DISCHARGE 13K'
+            WHEN t.coupon LIKE 'DIS-9CY%' THEN 'DISCHARGE 9CAY'
+            WHEN t.coupon LIKE 'CAP-5K2%' THEN 'CAPILARY 5K'
+            WHEN t.coupon LIKE 'CAP-7K1%' THEN 'CAPILARY 7K'
+            WHEN t.coupon LIKE 'CAP-9K2%' THEN 'CAPILARY 9K'
+            WHEN t.coupon LIKE 'CAP-68K%' THEN 'CAPILARY X6/X8'
+            WHEN t.coupon LIKE 'CAP-10K%' THEN 'CAPILARY X10'
+            WHEN t.coupon LIKE 'CAP-13K%' THEN 'CAPILARY X13'
+            WHEN t.coupon LIKE 'CAP-9CY%' THEN 'CAPILARY 9CAY'
             ELSE '-'
         END AS part_name,
         SUM(CASE WHEN t.shift = 1 THEN t.qty ELSE 0 END) AS s1,
@@ -171,7 +250,6 @@ if ($qPipLive) {
     }
 }
 
-
 // ==========================================
 // 2. QUERY DETAIL HISTORY TABEL BAWAH
 // ==========================================
@@ -182,16 +260,60 @@ switch ($activeCategory) {
         $where = "WHERE t.status = 'ASSY'";
         if (!empty($filterDate)) $where .= " AND DATE(t.date_tr) = '$filterDate'";
         $queryDetail = "
-            SELECT DATE(t.date_tr) AS tgl, t.part_code, p.part_name,
-                   SUM(CASE WHEN t.shift = 1 THEN t.qty ELSE 0 END) AS s1,
-                   SUM(CASE WHEN t.shift = 2 THEN t.qty ELSE 0 END) AS s2,
-                   SUM(CASE WHEN t.shift = 3 THEN t.qty ELSE 0 END) AS s3,
-                   SUM(t.qty) AS total
+            SELECT DATE(t.date_tr) AS tgl,
+                CASE 
+                    WHEN t.part_code LIKE 'CCHS-B829%' THEN 'CCHS-B829JBTA'
+                    WHEN t.part_code LIKE 'GCAB-A646%' THEN 'GCAB-A646JBTA'
+                    WHEN t.part_code LIKE 'GCAB-A767%' THEN 'GCAB-A767JBTA'
+                    WHEN t.part_code LIKE 'PPLT-B282%' THEN 'PPLT-B282JBTA'
+                    ELSE TRIM(t.part_code)
+                END AS part_code,
+                CASE 
+                    WHEN t.part_code LIKE 'CCHS-B829%' THEN 'Base Pan'
+                    WHEN t.part_code LIKE 'GCAB-A646%' THEN 'Top Table'
+                    WHEN t.part_code LIKE 'GCAB-A767%' THEN 'Front Panel'
+                    WHEN t.part_code LIKE 'PPLT-B282%' THEN 'Side Cover R'
+                    ELSE COALESCE(p.part_name, '-')
+                END AS part_name,
+                SUM(CASE WHEN t.shift = 1 THEN t.qty ELSE 0 END) AS s1,
+                SUM(CASE WHEN t.shift = 2 THEN t.qty ELSE 0 END) AS s2,
+                SUM(CASE WHEN t.shift = 3 THEN t.qty ELSE 0 END) AS s3,
+                SUM(t.qty) AS total
             FROM `seid_ac_pp`.`transaction` t
             LEFT JOIN `seid_ac_pp`.`part` p ON t.part_code = p.part_code
             $where
-            GROUP BY DATE(t.date_tr), t.part_code, p.part_name
-            ORDER BY DATE(t.date_tr) DESC, t.part_code ASC";
+            GROUP BY DATE(t.date_tr), part_code, part_name
+            ORDER BY DATE(t.date_tr) DESC, part_code ASC";
+        break;
+
+    case 'press':
+        $where = "WHERE t.status = 'PAINT'";
+        if (!empty($filterDate)) $where .= " AND DATE(t.date_tr) = '$filterDate'";
+        $queryDetail = "
+            SELECT DATE(t.date_tr) AS tgl,
+                CASE 
+                    WHEN t.part_code LIKE 'GCAB-A646%' THEN 'GCAB-A646JBPZ'
+                    WHEN t.part_code LIKE 'GCAB-A767%' THEN 'GCAB-A767JBPZ'
+                    WHEN t.part_code LIKE 'LCHS-A800%' OR t.part_code LIKE 'CCHS-B829%' THEN 'LCHS-A800JBPZ'
+                    WHEN t.part_code LIKE 'PPLT-B282%' THEN 'PPLT-B282JBPZ'
+                    ELSE TRIM(t.part_code)
+                END AS part_code,
+                CASE 
+                    WHEN t.part_code LIKE 'GCAB-A646%' THEN 'Top Table'
+                    WHEN t.part_code LIKE 'GCAB-A767%' THEN 'Front Panel'
+                    WHEN t.part_code LIKE 'LCHS-A800%' OR t.part_code LIKE 'CCHS-B829%' THEN 'Base Pan'
+                    WHEN t.part_code LIKE 'PPLT-B282%' THEN 'Side Cover R'
+                    ELSE COALESCE(p.part_name, '-')
+                END AS part_name,
+                SUM(CASE WHEN t.shift = 1 THEN t.qty ELSE 0 END) AS s1,
+                SUM(CASE WHEN t.shift = 2 THEN t.qty ELSE 0 END) AS s2,
+                SUM(CASE WHEN t.shift = 3 THEN t.qty ELSE 0 END) AS s3,
+                SUM(t.qty) AS total
+            FROM `seid_ac_pp`.`transaction` t
+            LEFT JOIN `seid_ac_pp`.`part` p ON t.part_code = p.part_code
+            $where
+            GROUP BY DATE(t.date_tr), part_code, part_name
+            ORDER BY DATE(t.date_tr) DESC, part_code ASC";
         break;
 
     case 'he':
@@ -204,7 +326,7 @@ switch ($activeCategory) {
                     WHEN t.coupon LIKE 'CDR%' THEN 'DCON-B105JBEZ'
                     WHEN t.coupon LIKE 'SRI%' THEN 'DCON-B074JBEZ'
                     WHEN t.coupon LIKE 'DRI%' THEN 'DCON-B075JBEZ'
-                    WHEN t.coupon LIKE 'EVA%' THEN 'PEVA-B243JBEZ'
+                    WHEN t.coupon LIKE 'EVA%' THEN 'PEVA-B161JBPZ'
                     ELSE TRIM(t.coupon)
                 END AS part_code,
                 CASE 
@@ -231,31 +353,49 @@ switch ($activeCategory) {
         $queryDetail = "
             SELECT DATE(t.tgl_lot) AS tgl,
                 CASE 
-                    WHEN t.coupon LIKE 'ALL-IDU%' THEN 'ALL-IDU'
-                    WHEN t.coupon LIKE 'SUC-IVT%' THEN 'SUC-IVT'
-                    ELSE CONCAT(SUBSTRING_INDEX(t.coupon, '-', 1), '-', SUBSTRING_INDEX(SUBSTRING_INDEX(t.coupon, '-', 2), '-', -1))
+                    WHEN t.coupon LIKE 'ALL-IDU%' THEN 'CPIPCC533JBKZ'
+                    WHEN t.coupon LIKE 'SUC-5K2%' THEN 'CPIPCC616JBKZ'
+                    WHEN t.coupon LIKE 'SUC-9K2%' THEN 'CPIPCC625JBKZ'
+                    WHEN t.coupon LIKE 'SUC-IVT%' THEN 'CPIPCC571JBKZ'
+                    WHEN t.coupon LIKE 'SUC-13K%' THEN 'CPIPCC624JBKZ'
+                    WHEN t.coupon LIKE 'SUC-9CY%' THEN 'CPIPCK426JBKZ'
+                    WHEN t.coupon LIKE 'DIS-5K2%' THEN 'CCYC-F289JBKZ'
+                    WHEN t.coupon LIKE 'DIS-7K1%' THEN 'CCYC-F091JBKZ'
+                    WHEN t.coupon LIKE 'DIS-9K2%' THEN 'CCYC-F255JBKZ'
+                    WHEN t.coupon LIKE 'DIS-68K%' THEN 'CPIPCC572JBKZ'
+                    WHEN t.coupon LIKE 'DIS-10K%' THEN 'CPIPCC561JBKZ'
+                    WHEN t.coupon LIKE 'DIS-13K%' THEN 'CPIPCC623JBKZ'
+                    WHEN t.coupon LIKE 'DIS-9CY%' THEN 'CCYC-F311JBKZ'
+                    WHEN t.coupon LIKE 'CAP-5K2%' THEN 'CCPY-A455JBKZ'
+                    WHEN t.coupon LIKE 'CAP-7K1%' THEN 'CCPY-A456JBKZ'
+                    WHEN t.coupon LIKE 'CAP-9K2%' THEN 'CCPY-A457JBKZ'
+                    WHEN t.coupon LIKE 'CAP-68K%' THEN 'CCPY-A458JBKZ'
+                    WHEN t.coupon LIKE 'CAP-10K%' THEN 'CCPY-A459JBKZ'
+                    WHEN t.coupon LIKE 'CAP-13K%' THEN 'CCPY-A516JBKZ'
+                    WHEN t.coupon LIKE 'CAP-9CY%' THEN 'PCPY-C007JB1Z'
+                    ELSE TRIM(t.coupon)
                 END AS part_code,
                 CASE 
-                    WHEN t.coupon LIKE 'CAP-5K2%' THEN 'Capillary 5K2'
-                    WHEN t.coupon LIKE 'CAP-7K1%' THEN 'Capillary 7K'
-                    WHEN t.coupon LIKE 'CAP-9K2%' THEN 'Capillary 9K2'
-                    WHEN t.coupon LIKE 'CAP-9CY%' THEN 'Capillary 9CAY'
-                    WHEN t.coupon LIKE 'CAP-68K%' THEN 'Capillary 6K & 8K'
-                    WHEN t.coupon LIKE 'CAP-10K%' THEN 'Capillary 10K'
-                    WHEN t.coupon LIKE 'CAP-13K%' THEN 'Capillary 13K'
-                    WHEN t.coupon LIKE 'DIS-5K2%' THEN 'Discharge 5K2'
-                    WHEN t.coupon LIKE 'DIS-7K1%' THEN 'Discharge 7K'
-                    WHEN t.coupon LIKE 'DIS-9K2%' THEN 'Discharge 9K2'
-                    WHEN t.coupon LIKE 'DIS-9CY%' THEN 'Discharge 9CAY'
-                    WHEN t.coupon LIKE 'DIS-68K%' THEN 'Discharge 6K & 8K'
-                    WHEN t.coupon LIKE 'DIS-10K%' THEN 'Discharge 10K'
-                    WHEN t.coupon LIKE 'DIS-13K%' THEN 'Discharge 13K'
-                    WHEN t.coupon LIKE 'SUC-5K2%' THEN 'Suction 5K2 & 7K'
-                    WHEN t.coupon LIKE 'SUC-9K2%' THEN 'Suction 9K2'
-                    WHEN t.coupon LIKE 'SUC-9CY%' THEN 'Suction 9CAY'
-                    WHEN t.coupon LIKE 'SUC-IVT%' THEN 'Suction 6K, 8K & 10K'
-                    WHEN t.coupon LIKE 'SUC-13K%' THEN 'Suction 13K'
-                    WHEN t.coupon LIKE 'ALL-IDU%' THEN 'Tube Assy - Indoor'
+                    WHEN t.coupon LIKE 'ALL-IDU%' THEN 'TUBE ASSY'
+                    WHEN t.coupon LIKE 'SUC-5K2%' THEN 'SUCTION 7K/ 5K-2'
+                    WHEN t.coupon LIKE 'SUC-9K2%' THEN 'SUCTION 9K2'
+                    WHEN t.coupon LIKE 'SUC-IVT%' THEN 'SUCTION 6K/8K/10K'
+                    WHEN t.coupon LIKE 'SUC-13K%' THEN 'SUCTION MUFFLER 13K TUBE 1'
+                    WHEN t.coupon LIKE 'SUC-9CY%' THEN 'SUCTION 9CAY'
+                    WHEN t.coupon LIKE 'DIS-5K2%' THEN 'DISCHARGE 5K2'
+                    WHEN t.coupon LIKE 'DIS-7K1%' THEN 'DISCHARGE 7K'
+                    WHEN t.coupon LIKE 'DIS-9K2%' THEN 'DISCHARGE 9K2'
+                    WHEN t.coupon LIKE 'DIS-68K%' THEN 'DISCHARGE 6K & 8K'
+                    WHEN t.coupon LIKE 'DIS-10K%' THEN 'DISCHARGE 10K'
+                    WHEN t.coupon LIKE 'DIS-13K%' THEN 'DISCHARGE 13K'
+                    WHEN t.coupon LIKE 'DIS-9CY%' THEN 'DISCHARGE 9CAY'
+                    WHEN t.coupon LIKE 'CAP-5K2%' THEN 'CAPILARY 5K'
+                    WHEN t.coupon LIKE 'CAP-7K1%' THEN 'CAPILARY 7K'
+                    WHEN t.coupon LIKE 'CAP-9K2%' THEN 'CAPILARY 9K'
+                    WHEN t.coupon LIKE 'CAP-68K%' THEN 'CAPILARY X6/X8'
+                    WHEN t.coupon LIKE 'CAP-10K%' THEN 'CAPILARY X10'
+                    WHEN t.coupon LIKE 'CAP-13K%' THEN 'CAPILARY X13'
+                    WHEN t.coupon LIKE 'CAP-9CY%' THEN 'CAPILARY 9CAY'
                     ELSE '-'
                 END AS part_name,
                 SUM(CASE WHEN t.shift = 1 THEN t.qty ELSE 0 END) AS s1,
@@ -296,8 +436,9 @@ if ($resDetail && mysqli_num_rows($resDetail) > 0) {
 }
 
 $modulesNav = [
-    'injection' => 'Injection',
+    'press'     => 'Press',
     'painting'  => 'Painting',
+    'injection' => 'Injection',
     'he'        => 'HE',
     'piping'    => 'Piping'
 ];
@@ -318,9 +459,12 @@ $modulesNav = [
         padding: 8px 12px;
     }
 
-    /* Warna Sesuai Gambar */
     .bg-painting {
         background-color: #0066ff;
+    }
+
+    .bg-press {
+        background-color: #fd7e14;
     }
 
     .bg-injection {
@@ -384,11 +528,11 @@ $modulesNav = [
         <span class="badge bg-dark fs-6">Tanggal Produksi: <?= date('d M Y', strtotime($currentDate)) ?></span>
     </div>
 
-    <!-- 1. LIVE SUMMARY HARI INI (4 CARD PARALLEL SESUAI GAMBAR) -->
+    <!-- 1. LIVE SUMMARY HARI INI (5 CARD PARALLEL) -->
     <div class="row g-2 mb-4">
 
         <!-- Painting Parts Card -->
-        <div class="col-12 col-md-3">
+        <div class="col-12 col-md-2" style="flex: 0 0 auto; width: 20%;">
             <div class="card card-process h-100">
                 <div class="card-header-custom bg-painting">Painting Parts</div>
                 <div class="card-body p-0 scrollable-card-body">
@@ -425,8 +569,46 @@ $modulesNav = [
             </div>
         </div>
 
+        <!-- Press Parts Card -->
+        <div class="col-12 col-md-2" style="flex: 0 0 auto; width: 20%;">
+            <div class="card card-process h-100">
+                <div class="card-header-custom bg-press">Press Parts</div>
+                <div class="card-body p-0 scrollable-card-body">
+                    <table class="table table-bordered table-hover table-parts">
+                        <thead>
+                            <tr>
+                                <th>Part</th>
+                                <th class="col-shift">S1</th>
+                                <th class="col-shift">S2</th>
+                                <th class="col-shift">S3</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (!empty($pressParts)): ?>
+                                <?php foreach ($pressParts as $item): ?>
+                                    <tr>
+                                        <td>
+                                            <span class="part-code-text"><?= htmlspecialchars($item['part_code']) ?></span>
+                                            <span class="part-name-text"><?= htmlspecialchars($item['part_name'] ?? '-') ?></span>
+                                        </td>
+                                        <td class="col-shift"><?= $item['s1'] ?></td>
+                                        <td class="col-shift"><?= $item['s2'] ?></td>
+                                        <td class="col-shift"><?= $item['s3'] ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <tr>
+                                    <td colspan="4" class="text-center text-muted py-3">Tidak ada data</td>
+                                </tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- Injection Parts Card -->
-        <div class="col-12 col-md-3">
+        <div class="col-12 col-md-2" style="flex: 0 0 auto; width: 20%;">
             <div class="card card-process h-100">
                 <div class="card-header-custom bg-injection">Injection Parts</div>
                 <div class="card-body p-0 scrollable-card-body">
@@ -464,7 +646,7 @@ $modulesNav = [
         </div>
 
         <!-- HE Parts Card -->
-        <div class="col-12 col-md-3">
+        <div class="col-12 col-md-2" style="flex: 0 0 auto; width: 20%;">
             <div class="card card-process h-100">
                 <div class="card-header-custom bg-he">HE Parts</div>
                 <div class="card-body p-0 scrollable-card-body">
@@ -502,7 +684,7 @@ $modulesNav = [
         </div>
 
         <!-- Piping Parts Card -->
-        <div class="col-12 col-md-3">
+        <div class="col-12 col-md-2" style="flex: 0 0 auto; width: 20%;">
             <div class="card card-process h-100">
                 <div class="card-header-custom bg-piping">Piping Parts</div>
                 <div class="card-body p-0 scrollable-card-body">
