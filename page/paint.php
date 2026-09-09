@@ -16,7 +16,7 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'] ?? '', $allowed_
     // exit();
 }
 
-$current_role  = $_SESSION['role'] ?? 'PRESS';
+$current_role  = $_SESSION['role'] ?? 'PAINTING';
 
 // List Part Preset
 $default_parts = [
@@ -26,33 +26,39 @@ $default_parts = [
     ['code' => 'PPLT-B282JBPZ', 'name' => 'Side Cover R']
 ];
 
+// Helper untuk redirect agar terarah ke page=paint
+$redirectPage = (strtolower($current_role) === 'painting') ? 'paint' : strtolower($current_role);
+
 // =========================================================================
-// 1. HANDLE ACTION BATCH SAVE, EDIT, & DELETE
+// 1. HANDLE ACTION BATCH SAVE, EDIT, & DELETE (PAINTING)
 // =========================================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
-    // --- A. BATCH INPUT (OTOMATIS TANGGAL HARI INI & SHIFT 1 / BISA CUSTOM DARI MODAL) ---
-    if ($_POST['action'] === 'save_batch_press') {
+    // --- A. BATCH INPUT PAINTING (TAMBAH QTY_PAINT & KURANGI QTY_PRESS) ---
+    if ($_POST['action'] === 'save_batch_paint') {
         $parts          = $_POST['parts'] ?? [];
-        $selectedDate  = $_POST['production_date'] ?? date('Y-m-d');
-        $selectedShift = (int)($_POST['shift'] ?? 1);
-        $now           = date('Y-m-d H:i:s');
+        $selectedDate   = $_POST['production_date'] ?? date('Y-m-d');
+        $selectedShift  = (int)($_POST['shift'] ?? 1);
         $inserted_count = 0;
 
         try {
             $pdo->beginTransaction();
 
-            $sqlStok = "INSERT INTO stok_pp (part_code, part_name, qty_press) 
-                        VALUES (:part_code, :part_name, :qty)
+            // 1. Query Stok (Menggunakan VALUES() di ON DUPLICATE agar tidak perlu bind :qty berulang)
+            $sqlStok = "INSERT INTO stok_pp (part_code, part_name, qty_paint, qty_press) 
+                        VALUES (:part_code, :part_name, :qty_p, :qty_minus)
                         ON DUPLICATE KEY UPDATE 
                             part_name = VALUES(part_name),
+                            qty_paint = qty_paint + VALUES(qty_paint),
                             qty_press = qty_press + VALUES(qty_press)";
             $stmtStok = $pdo->prepare($sqlStok);
 
+            // 2. Query Log Transaksi
             $sqlLog = "INSERT INTO stock_transactions (user_id, role, part_code, source_table, transaction_type, qty, shift, production_date, created_at) 
                        VALUES (:user_id, :role, :part_code, 'stok_pp', 'IN', :qty, :shift, :prod_date, :created_at)";
             $stmtLog = $pdo->prepare($sqlLog);
 
+            // 3. Query Activity Log
             $sqlActivity = "INSERT INTO activity_logs (user_id, action, description, created_at) 
                             VALUES (:user_id, :action, :description, :created_at)";
             $stmtActivity = $pdo->prepare($sqlActivity);
@@ -66,26 +72,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     continue;
                 }
 
+                // Execute Stok dengan nilai positif dan minus yang terpisah
                 $stmtStok->execute([
                     ':part_code' => $part_code,
                     ':part_name' => $part_name,
-                    ':qty'       => $qty
+                    ':qty_p'     => $qty,
+                    ':qty_minus' => -$qty
                 ]);
 
+                // Execute Log Transaksi
                 $stmtLog->execute([
-                    ':user_id'   => $_SESSION['user_id'] ?? 1,
-                    ':role'      => $current_role,
-                    ':part_code' => $part_code,
-                    ':qty'       => $qty,
-                    ':shift'     => $selectedShift,
-                    ':prod_date' => $selectedDate,
+                    ':user_id'    => $_SESSION['user_id'] ?? 1,
+                    ':role'       => $current_role,
+                    ':part_code'  => $part_code,
+                    ':qty'        => $qty,
+                    ':shift'      => $selectedShift,
+                    ':prod_date'  => $selectedDate,
                     ':created_at' => $now
                 ]);
 
+                // Execute Activity Log
                 $stmtActivity->execute([
                     ':user_id'     => $_SESSION['user_id'] ?? 1,
-                    ':action'      => 'INSERT_BATCH_PRESS',
-                    ':description' => "Input FG Press [Shift {$selectedShift} | Tgl: {$selectedDate}]: {$part_code} ({$part_name}) Qty: {$qty}",
+                    ':action'      => 'INSERT_BATCH_PAINTING',
+                    ':description' => "Input FG Painting [Shift {$selectedShift} | Tgl: {$selectedDate}]: {$part_code} ({$part_name}) Qty: {$qty}",
                     ':created_at'  => $now
                 ]);
 
@@ -95,7 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $pdo->commit();
 
             if ($inserted_count > 0) {
-                $_SESSION['success'] = "Berhasil menyimpan $inserted_count item Part Finish Good (Shift $selectedShift - Tgl $selectedDate)!";
+                $_SESSION['success'] = "Berhasil menyimpan $inserted_count item Part Painting (Shift $selectedShift - Tgl $selectedDate)!";
             } else {
                 $_SESSION['error'] = "Tidak ada item yang disimpan. Masukkan Qty lebih dari 0.";
             }
@@ -104,17 +114,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $_SESSION['error'] = "Gagal menyimpan batch data: " . $e->getMessage();
         }
 
-        header("Location: index.php?page=" . strtolower($current_role));
+        header("Location: index.php?page=" . $redirectPage);
         exit();
     }
 
-    // --- B. EDIT TRANSAKSI ---
+    // --- B. EDIT TRANSAKSI PAINTING ---
     if ($_POST['action'] === 'edit_transaction') {
         $id_trx    = (int)$_POST['id_transaction'];
         $new_qty   = (int)$_POST['new_qty'];
         $new_date  = $_POST['production_date'] ?? date('Y-m-d');
         $new_shift = (int)($_POST['shift'] ?? 1);
-        $now       = date('Y-m-d H:i:s');
 
         try {
             $pdo->beginTransaction();
@@ -126,8 +135,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if ($oldTrx) {
                 $selisih = $new_qty - $oldTrx['qty'];
 
-                $stmtUpdateStok = $pdo->prepare("UPDATE stok_pp SET qty_press = qty_press + :selisih WHERE part_code = :part_code");
-                $stmtUpdateStok->execute([':selisih' => $selisih, ':part_code' => $oldTrx['part_code']]);
+                // Update qty_paint (ditambah selisih) & qty_press (dikurangi selisih)
+                // Memisahkan :selisih1 dan :selisih2 agar PDO tidak error HY093
+                $stmtUpdateStok = $pdo->prepare("UPDATE stok_pp 
+                                                 SET qty_paint = qty_paint + :selisih1, 
+                                                     qty_press = qty_press - :selisih2 
+                                                 WHERE part_code = :part_code");
+                $stmtUpdateStok->execute([
+                    ':selisih1'  => $selisih,
+                    ':selisih2'  => $selisih,
+                    ':part_code' => $oldTrx['part_code']
+                ]);
 
                 $stmtUpdateLog = $pdo->prepare("UPDATE stock_transactions SET qty = :qty, shift = :shift, production_date = :prod_date WHERE id = :id");
                 $stmtUpdateLog->execute([
@@ -140,24 +158,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $stmtActivity = $pdo->prepare("INSERT INTO activity_logs (user_id, action, description, created_at) VALUES (:user_id, :action, :description, :created_at)");
                 $stmtActivity->execute([
                     ':user_id'     => $_SESSION['user_id'] ?? 1,
-                    ':action'      => 'EDIT_TRX_PRESS',
-                    ':description' => "Edit Trx #{$id_trx} ({$oldTrx['part_code']}) -> Qty: {$new_qty}, Shift: {$new_shift}, Tgl: {$new_date}",
+                    ':action'      => 'EDIT_TRX_PAINTING',
+                    ':description' => "Edit Trx Painting #{$id_trx} ({$oldTrx['part_code']}) -> Qty: {$new_qty}, Shift: {$new_shift}, Tgl: {$new_date}",
                     ':created_at'  => $now
                 ]);
 
                 $pdo->commit();
-                $_SESSION['success'] = "Transaksi berhasil diperbarui!";
+                $_SESSION['success'] = "Transaksi Painting berhasil diperbarui!";
             }
         } catch (Exception $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             $_SESSION['error'] = "Gagal memperbarui transaksi: " . $e->getMessage();
         }
 
-        header("Location: index.php?page=" . strtolower($current_role));
+        header("Location: index.php?page=" . $redirectPage);
         exit();
     }
 
-    // --- C. DELETE TRANSAKSI ---
+    // --- C. DELETE TRANSAKSI PAINTING ---
     if ($_POST['action'] === 'delete_transaction') {
         $id_trx = (int)$_POST['id_transaction'];
         $now    = date('Y-m-d H:i:s');
@@ -165,34 +183,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         try {
             $pdo->beginTransaction();
 
+            // 1. Ambil data transaksi lama
             $stmtOld = $pdo->prepare("SELECT part_code, qty FROM stock_transactions WHERE id = :id");
             $stmtOld->execute([':id' => $id_trx]);
             $oldTrx = $stmtOld->fetch();
 
             if ($oldTrx) {
-                $stmtSubStok = $pdo->prepare("UPDATE stok_pp SET qty_press = qty_press - :qty WHERE part_code = :part_code");
-                $stmtSubStok->execute([':qty' => $oldTrx['qty'], ':part_code' => $oldTrx['part_code']]);
+                // 2. Kembalikan stok (qty_paint dikurangi, qty_press dikembalikan/ditambah)
+                // Memisahkan parameter :qty1 dan :qty2 agar PDO tidak melempar error HY093
+                $stmtSubStok = $pdo->prepare("UPDATE stok_pp 
+                                             SET qty_paint = qty_paint - :qty1, 
+                                                 qty_press = qty_press + :qty2 
+                                             WHERE part_code = :part_code");
+                $stmtSubStok->execute([
+                    ':qty1'      => $oldTrx['qty'],
+                    ':qty2'      => $oldTrx['qty'],
+                    ':part_code' => $oldTrx['part_code']
+                ]);
 
+                // 3. Hapus data transaksi
                 $stmtDel = $pdo->prepare("DELETE FROM stock_transactions WHERE id = :id");
                 $stmtDel->execute([':id' => $id_trx]);
 
+                // 4. Catat ke Activity Log
                 $stmtActivity = $pdo->prepare("INSERT INTO activity_logs (user_id, action, description, created_at) VALUES (:user_id, :action, :description, :created_at)");
                 $stmtActivity->execute([
                     ':user_id'     => $_SESSION['user_id'] ?? 1,
-                    ':action'      => 'DELETE_TRX_PRESS',
-                    ':description' => "Hapus Trx #{$id_trx} ({$oldTrx['part_code']}) Qty: {$oldTrx['qty']}",
+                    ':action'      => 'DELETE_TRX_PAINTING',
+                    ':description' => "Hapus Trx Painting #{$id_trx} ({$oldTrx['part_code']}) Qty: {$oldTrx['qty']}",
                     ':created_at'  => $now
                 ]);
 
                 $pdo->commit();
-                $_SESSION['success'] = "Transaksi berhasil dihapus dan stok telah disesuaikan!";
+                $_SESSION['success'] = "Transaksi berhasil dihapus dan stok telah disesuaikan kembali!";
             }
         } catch (Exception $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             $_SESSION['error'] = "Gagal menghapus transaksi: " . $e->getMessage();
         }
 
-        header("Location: index.php?page=" . strtolower($current_role));
+        header("Location: index.php?page=" . $redirectPage);
         exit();
     }
 }
@@ -284,20 +314,18 @@ $histories = $stmtHistory->fetchAll();
         <div class="col-lg-5 col-md-12">
             <div class="card shadow-sm border-0">
                 <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center py-2">
-                    <span class="fw-bold" style="font-size: 0.9rem;">Input Finish Good</span>
+                    <span class="fw-bold" style="font-size: 0.9rem;">Input Output Painting</span>
                     <button type="button" class="btn btn-sm btn-outline-light px-2 m-0 fw-bold" style="font-size: 0.5rem;" data-bs-toggle="modal" data-bs-target="#backdateModal">
                         Input Susulan
                     </button>
                 </div>
                 <div class="card-body p-3">
                     <form method="POST">
-                        <input type="hidden" name="action" value="save_batch_press">
+                        <input type="hidden" name="action" value="save_batch_paint">
                         <input type="hidden" name="production_date" value="<?= getProductionDateOnly($now) ?>">
                         <input type="hidden" name="shift" value="<?= $currentShift ?>">
 
-                        <?php foreach ($default_parts as $index => $part):
-                            $code = $part['code'];
-                        ?>
+                        <?php foreach ($default_parts as $index => $part): ?>
                             <div class="border rounded p-2 mb-2 bg-light">
                                 <div class="row g-2 align-items-center">
                                     <div class="col-7">
@@ -327,7 +355,7 @@ $histories = $stmtHistory->fetchAll();
         <div class="col-lg-7 col-md-12">
             <div class="card shadow-sm border-0">
                 <div class="card-header bg-dark text-white fw-bold py-2 d-flex justify-content-between align-items-center" style="font-size: 0.9rem;">
-                    <span>History Transaksi</span>
+                    <span>History Transaksi Painting</span>
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive" style="max-height: 340px; overflow-y: auto;">
@@ -350,9 +378,8 @@ $histories = $stmtHistory->fetchAll();
                                             <td class="text-start">
                                                 <?= date('d/m/Y H:i', strtotime($tr['created_at'])) ?>
                                             </td>
-                                            <td class=" text-muted">
+                                            <td class="text-muted">
                                                 <?= date('d/m/Y', strtotime($tr['production_date'])) ?>
-                                                <small class="d-block text-black-50" style="font-size:0.65rem;"><?= date('H:i', strtotime($tr['production_date'])) ?></small>
                                             </td>
                                             <td><span class="badge bg-secondary">S<?= $tr['shift'] ?? '-' ?></span></td>
                                             <td class="text-start fw-bold"><?= htmlspecialchars($tr['part_code']) ?></td>
@@ -435,7 +462,7 @@ $histories = $stmtHistory->fetchAll();
                                     <?php endforeach; ?>
                                 <?php else: ?>
                                     <tr>
-                                        <td colspan="6" class="text-muted py-4">Belum ada riwayat transaksi.</td>
+                                        <td colspan="7" class="text-muted py-4">Belum ada riwayat transaksi.</td>
                                     </tr>
                                 <?php endif; ?>
                             </tbody>
@@ -544,11 +571,11 @@ $histories = $stmtHistory->fetchAll();
         <div class="modal-content">
             <form method="POST">
                 <div class="modal-header bg-warning text-white py-2">
-                    <h6 class="modal-title fw-bold">Input Susulan</h6>
+                    <h6 class="modal-title fw-bold">Input Susulan Painting</h6>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <input type="hidden" name="action" value="save_batch_press">
+                    <input type="hidden" name="action" value="save_batch_paint">
 
                     <div class="row g-2 mb-3">
                         <div class="col-6">
@@ -592,11 +619,10 @@ $histories = $stmtHistory->fetchAll();
     </div>
 </div>
 
-<!-- MODAL LAPORAN FOTO LEADER (UKURAN BESAR / MODAL-XL) -->
+<!-- MODAL LAPORAN FOTO LEADER -->
 <div class="modal fade" id="reportPhotoModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg">
-            <!-- HEADER MODAL -->
             <div class="modal-header bg-primary text-white py-3">
                 <div>
                     <h5 class="modal-title fw-bold mb-0">
@@ -606,19 +632,16 @@ $histories = $stmtHistory->fetchAll();
                 </div>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <!-- BODY LAPORAN (AREA YANG BISA DIFOTO) -->
             <div class="modal-body p-4 bg-white" id="printableReportArea">
-                <!-- HEADER INFORMASI PABRIK -->
                 <div class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-3">
                     <div>
-                        <h4 class="fw-bold text-dark mb-0">LAPORAN HARIAN OUTPUT PRESS</h4>
+                        <h4 class="fw-bold text-dark mb-0">LAPORAN HARIAN OUTPUT PAINTING</h4>
                     </div>
                     <div class="text-end">
                         <div class="fw-bold text-secondary">TANGGAL: <?= date('d/m/Y', strtotime($todayFilter)) ?></div>
                         <small class="text-muted d-block">Shift Aktif: <b>Shift <?= $currentShift ?></b></small>
                     </div>
                 </div>
-                <!-- TABEL UTAMA FOTO LEADER -->
                 <div class="table-responsive">
                     <table class="table table-bordered align-middle text-center mb-0" style="font-size: 1.05rem;">
                         <thead class="table-dark text-uppercase fs-6">
@@ -664,7 +687,6 @@ $histories = $stmtHistory->fetchAll();
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
-                        <!-- FOOTER TOTAL SELURUH PART -->
                         <tfoot class="table-secondary fw-bold fs-5">
                             <tr>
                                 <td colspan="3" class="text-end py-2">TOTAL OUTPUT:</td>
@@ -677,11 +699,9 @@ $histories = $stmtHistory->fetchAll();
                     </table>
                 </div>
             </div>
-            <!-- FOOTER MODAL (AKSI) -->
             <div class="modal-footer bg-light py-2">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Tutup</button>
             </div>
-
         </div>
     </div>
 </div>

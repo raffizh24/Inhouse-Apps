@@ -1,36 +1,55 @@
 <?php
-require 'config.php';
+session_start();
+
+// Panggil file konfigurasi
+require_once 'config.php';
+global $pdo; // Menggunakan PDO dari config.php
+
 $error = '';
 
 if (isset($_POST['login'])) {
-    $username = $_POST['username'];
-    $password = $_POST['password'];
+    $username = trim($_POST['username']);
+    $password = trim($_POST['password']);
 
-    $stmt = $conn->prepare("SELECT id, username, password, role FROM users WHERE username = ?");
-    $stmt->bind_param("s", $username);
-    $stmt->execute();
-    $result = $stmt->get_result();
+    try {
+        // Query menggunakan PDO
+        $stmt = $pdo->prepare("SELECT id, username, password, role FROM users WHERE username = :username");
+        $stmt->execute([':username' => $username]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if ($user = $result->fetch_assoc()) {
-        // Cek password langsung tanpa hash (plain text)
-        // Contoh pada logika setelah validasi password berhasil:
-        $_SESSION['user_id']  = $user['id'];
-        $_SESSION['username'] = $user['username'];
-        $_SESSION['role']     = $user['role']; // PRESS, PAINTING, HEPI, INJECTION, dll.
+        if ($user) {
+            // Cek password (plain text)
+            if ($password === $user['password']) {
 
-        // Array role yang langsung masuk ke Input FG
-        $fg_roles = ['PRESS', 'PAINTING', 'HEPI', 'INJECTION'];
+                // Simpan data session
+                $_SESSION['user_id']  = $user['id'];
+                $_SESSION['username'] = $user['username'];
+                $_SESSION['role']     = $user['role']; // PRESS, PAINTING, HEPI, INJECTION
 
-        if (in_array($_SESSION['role'], $fg_roles)) {
-            // Redirect langsung ke file handler atau routing index
-            header("Location: index.php?page=" . strtolower($_SESSION['role']));
-            exit();
+                $fg_roles = ['PRESS', 'PAINTING', 'HEPI', 'INJECTION'];
+
+                if (in_array($_SESSION['role'], $fg_roles)) {
+                    // Routing otomatis: PAINTING diarahkan ke page/paint.php
+                    $page = strtolower($_SESSION['role']);
+                    if ($page === 'painting') {
+                        $page = 'paint';
+                    }
+
+                    header("Location: index.php?page=" . $page);
+                    exit();
+                } else {
+                    header("Location: index.php?page=dashboard");
+                    exit();
+                }
+            } else {
+                $error = "Password salah!";
+            }
         } else {
-            header("Location: index.php?page=dashboard");
-            exit();
+            $error = "Username tidak ditemukan!";
         }
+    } catch (PDOException $e) {
+        $error = "Database error: " . $e->getMessage();
     }
-    $error = "Username atau password salah!";
 }
 ?>
 
@@ -39,6 +58,7 @@ if (isset($_POST['login'])) {
 
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - System Planning</title>
     <link rel="stylesheet" href="css/bootstrap.min.css">
 </head>
@@ -47,24 +67,25 @@ if (isset($_POST['login'])) {
     <div class="container">
         <div class="row justify-content-center">
             <div class="col-md-4">
-                <div class="card shadow-sm">
-                    <div class="card-header bg-primary text-white text-center">
-                        <h5 class="mb-0">System Planning Login</h5>
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-primary text-white text-center py-3">
+                        <h5 class="mb-0 fw-bold">System Planning Login</h5>
                     </div>
-                    <div class="card-body">
+                    <div class="card-body p-4">
                         <?php if ($error): ?>
-                            <div class="alert alert-danger py-2"><?= $error ?></div>
+                            <div class="alert alert-danger py-2" style="font-size: 0.85rem;"><?= htmlspecialchars($error) ?></div>
                         <?php endif; ?>
+
                         <form action="" method="POST">
                             <div class="mb-3">
-                                <label class="form-label">Username</label>
-                                <input type="text" name="username" class="form-control" required>
+                                <label class="form-label fw-bold" style="font-size: 0.85rem;">Username</label>
+                                <input type="text" name="username" class="form-control" placeholder="Masukkan username" required autocomplete="off">
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Password</label>
-                                <input type="password" name="password" class="form-control" required>
+                                <label class="form-label fw-bold" style="font-size: 0.85rem;">Password</label>
+                                <input type="password" name="password" class="form-control" placeholder="Masukkan password" required>
                             </div>
-                            <button type="submit" name="login" class="btn btn-primary w-100">Login</button>
+                            <button type="submit" name="login" class="btn btn-primary w-100 fw-bold py-2 mt-2">Login</button>
                         </form>
                     </div>
                 </div>

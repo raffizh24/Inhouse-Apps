@@ -21,11 +21,18 @@ function getShift($time)
     return 3;
 }
 
-// $now                    = '2026-09-08 02:00:00';
 $now                    = date('Y-m-d H:i:s');
 $currentDate            = getProductionDateOnly($now);
 $currentShift           = getShift(date('H:i', strtotime($now)));
 $productionDateDisplay  = date('d/m/Y', strtotime($currentDate));
+
+// --- PENENTUAN DEFAULT PAGE BERDASARKAN ROLE LOGIN ---
+$userRole = strtolower($_SESSION['role'] ?? 'press');
+if ($userRole === 'painting') {
+    $userRole = 'paint';
+}
+
+$page = strtolower($_GET['page'] ?? $userRole);
 ?>
 
 <!DOCTYPE html>
@@ -42,7 +49,7 @@ $productionDateDisplay  = date('d/m/Y', strtotime($currentDate));
     <!-- NAVBAR -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-3">
         <div class="container-fluid">
-            <a class="navbar-brand fw-bold" href="#">INHOUSE APPS</a>
+            <a class="navbar-brand fw-bold" href="index.php">INHOUSE APPS</a>
 
             <div class="ms-auto d-flex align-items-center gap-3">
                 <!-- DISPLAY SHIFT & TANGGAL PRODUKSI -->
@@ -63,10 +70,17 @@ $productionDateDisplay  = date('d/m/Y', strtotime($currentDate));
         </div>
     </nav>
 
-    <!-- LOAD HALAMAN PAGE (MISAL PRESS.PHP) -->
+    <!-- LOAD HALAMAN PAGE -->
     <?php
-    $page = $_GET['page'] ?? 'press';
-    include "page/" . strtolower($page) . ".php";
+    $targetFile = "page/" . $page . ".php";
+
+    if (file_exists($targetFile)) {
+        include $targetFile;
+    } else {
+        echo "<div class='container py-4 text-center'>
+                <div class='alert alert-danger d-inline-block'>Halaman <b>" . htmlspecialchars($page) . "</b> tidak ditemukan.</div>
+              </div>";
+    }
     ?>
 
     <script src="js/bootstrap.bundle.min.js"></script>
