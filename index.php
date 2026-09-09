@@ -21,6 +21,7 @@ function getShift($time)
     return 3;
 }
 
+// $now                    = '2026-09-08 02:00:00';
 $now                    = date('Y-m-d H:i:s');
 $currentDate            = getProductionDateOnly($now);
 $currentShift           = getShift(date('H:i', strtotime($now)));
@@ -47,7 +48,7 @@ $productionDateDisplay  = date('d/m/Y', strtotime($currentDate));
                 <!-- DISPLAY SHIFT & TANGGAL PRODUKSI -->
                 <div class="d-flex align-items-center gap-1">
                     <span class="badge bg-primary fs-7 py-2 px-2">Tanggal: <?= $productionDateDisplay ?></span>
-                    <span class="badge bg-warning text-dark fs-7 py-2 px-2=">Shift <?= $currentShift ?></span>
+                    <span class="badge bg-warning text-dark fs-7 py-2 px-2">Shift <?= $currentShift ?></span>
                 </div>
 
                 <!-- USER & LOGOUT -->

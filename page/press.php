@@ -1,53 +1,24 @@
 <?php
-// Pastikan koneksi PDO dan config ter-load dengan benar[cite: 1]
+// Pastikan koneksi PDO dan config ter-load dengan benar
 require_once __DIR__ . '/../config.php';
 global $pdo;
 
 date_default_timezone_set('Asia/Jakarta');
 
-// Pastikan koneksi aman[cite: 1]
 if (!isset($pdo) || $pdo === null) {
     die("Koneksi database gagal dimuat. Periksa file config.php Anda.");
 }
 
-// Validasi Session / Role Access[cite: 1]
+// Validasi Session / Role Access
 $allowed_roles = ['PRESS', 'PAINTING', 'HEPI', 'INJECTION'];
 if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'] ?? '', $allowed_roles)) {
     // header("Location: login.php");
     // exit();
 }
 
-// =========================================================================
-// FUNGSIONALITAS TANGGAL PRODUKSI & SHIFT[cite: 1]
-// =========================================================================
-if (!function_exists('getProductionDateOnly')) {
-    function getProductionDateOnly($datetime)
-    {
-        $time = date('H:i', strtotime($datetime));
-        $date = date('Y-m-d', strtotime($datetime));
-
-        if ($time < '09:00') {
-            return date('Y-m-d', strtotime($date . ' -1 day'));
-        }
-        return $date;
-    }
-}
-
-if (!function_exists('getShift')) {
-    function getShift($time)
-    {
-        if ($time >= '09:00' && $time < '18:00') return 1;
-        if ($time >= '18:00' || $time < '01:30') return 2;
-        return 3;
-    }
-}
-
 $current_role  = $_SESSION['role'] ?? 'PRESS';
-$now           = date('Y-m-d H:i:s');
-$currentDate   = getProductionDateOnly($now);
-$currentShift  = getShift(date('H:i', strtotime($now)));
 
-// List Part Preset[cite: 1]
+// List Part Preset
 $default_parts = [
     ['code' => 'GCAB-A646JBPZ', 'name' => 'Top Table'],
     ['code' => 'GCAB-A767JBPZ', 'name' => 'Front Panel'],
@@ -56,13 +27,16 @@ $default_parts = [
 ];
 
 // =========================================================================
-// 1. HANDLE ACTION BATCH SAVE, EDIT, & DELETE[cite: 1]
+// 1. HANDLE ACTION BATCH SAVE, EDIT, & DELETE
 // =========================================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
-    // --- A. BATCH INPUT (SAVE MULTIPLE PARTS) ---
+    // --- A. BATCH INPUT (OTOMATIS TANGGAL HARI INI & SHIFT 1 / BISA CUSTOM DARI MODAL) ---
     if ($_POST['action'] === 'save_batch_press') {
-        $parts = $_POST['parts'] ?? [];
+        $parts          = $_POST['parts'] ?? [];
+        $selectedDate  = $_POST['production_date'] ?? date('Y-m-d');
+        $selectedShift = (int)($_POST['shift'] ?? 1);
+        $now           = date('Y-m-d H:i:s');
         $inserted_count = 0;
 
         try {
@@ -92,29 +66,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     continue;
                 }
 
-                // 1. Update Live Stok
                 $stmtStok->execute([
                     ':part_code' => $part_code,
                     ':part_name' => $part_name,
                     ':qty'       => $qty
                 ]);
 
-                // 2. Insert Log Transaksi
                 $stmtLog->execute([
                     ':user_id'   => $_SESSION['user_id'] ?? 1,
                     ':role'      => $current_role,
                     ':part_code' => $part_code,
                     ':qty'       => $qty,
-                    ':shift'     => $currentShift,
-                    ':prod_date' => $currentDate,
+                    ':shift'     => $selectedShift,
+                    ':prod_date' => $selectedDate,
                     ':created_at' => $now
                 ]);
 
-                // 3. Insert ke Activity Logs
                 $stmtActivity->execute([
                     ':user_id'     => $_SESSION['user_id'] ?? 1,
                     ':action'      => 'INSERT_BATCH_PRESS',
-                    ':description' => "Input FG Press [Shift {$currentShift} | Tgl: {$currentDate}]: {$part_code} ({$part_name}) Qty: {$qty}",
+                    ':description' => "Input FG Press [Shift {$selectedShift} | Tgl: {$selectedDate}]: {$part_code} ({$part_name}) Qty: {$qty}",
                     ':created_at'  => $now
                 ]);
 
@@ -124,7 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $pdo->commit();
 
             if ($inserted_count > 0) {
-                $_SESSION['success'] = "Berhasil menyimpan $inserted_count item Part Finish Good (Shift $currentShift)!";
+                $_SESSION['success'] = "Berhasil menyimpan $inserted_count item Part Finish Good (Shift $selectedShift - Tgl $selectedDate)!";
             } else {
                 $_SESSION['error'] = "Tidak ada item yang disimpan. Masukkan Qty lebih dari 0.";
             }
@@ -139,8 +110,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     // --- B. EDIT TRANSAKSI ---
     if ($_POST['action'] === 'edit_transaction') {
-        $id_trx  = (int)$_POST['id_transaction'];
-        $new_qty = (int)$_POST['new_qty'];
+        $id_trx    = (int)$_POST['id_transaction'];
+        $new_qty   = (int)$_POST['new_qty'];
+        $new_date  = $_POST['production_date'] ?? date('Y-m-d');
+        $new_shift = (int)($_POST['shift'] ?? 1);
+        $now       = date('Y-m-d H:i:s');
 
         try {
             $pdo->beginTransaction();
@@ -152,20 +126,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if ($oldTrx) {
                 $selisih = $new_qty - $oldTrx['qty'];
 
-                // Update Stok
                 $stmtUpdateStok = $pdo->prepare("UPDATE stok_pp SET qty_press = qty_press + :selisih WHERE part_code = :part_code");
                 $stmtUpdateStok->execute([':selisih' => $selisih, ':part_code' => $oldTrx['part_code']]);
 
-                // Update Log Transaksi
-                $stmtUpdateLog = $pdo->prepare("UPDATE stock_transactions SET qty = :qty WHERE id = :id");
-                $stmtUpdateLog->execute([':qty' => $new_qty, ':id' => $id_trx]);
+                $stmtUpdateLog = $pdo->prepare("UPDATE stock_transactions SET qty = :qty, shift = :shift, production_date = :prod_date WHERE id = :id");
+                $stmtUpdateLog->execute([
+                    ':qty'       => $new_qty,
+                    ':shift'     => $new_shift,
+                    ':prod_date' => $new_date,
+                    ':id'        => $id_trx
+                ]);
 
-                // Insert Activity Log
                 $stmtActivity = $pdo->prepare("INSERT INTO activity_logs (user_id, action, description, created_at) VALUES (:user_id, :action, :description, :created_at)");
                 $stmtActivity->execute([
                     ':user_id'     => $_SESSION['user_id'] ?? 1,
                     ':action'      => 'EDIT_TRX_PRESS',
-                    ':description' => "Edit Qty Trx #{$id_trx} ({$oldTrx['part_code']}) dari {$oldTrx['qty']} menjadi {$new_qty}",
+                    ':description' => "Edit Trx #{$id_trx} ({$oldTrx['part_code']}) -> Qty: {$new_qty}, Shift: {$new_shift}, Tgl: {$new_date}",
                     ':created_at'  => $now
                 ]);
 
@@ -184,6 +160,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     // --- C. DELETE TRANSAKSI ---
     if ($_POST['action'] === 'delete_transaction') {
         $id_trx = (int)$_POST['id_transaction'];
+        $now    = date('Y-m-d H:i:s');
 
         try {
             $pdo->beginTransaction();
@@ -193,15 +170,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $oldTrx = $stmtOld->fetch();
 
             if ($oldTrx) {
-                // Kurangi Stok Live
                 $stmtSubStok = $pdo->prepare("UPDATE stok_pp SET qty_press = qty_press - :qty WHERE part_code = :part_code");
                 $stmtSubStok->execute([':qty' => $oldTrx['qty'], ':part_code' => $oldTrx['part_code']]);
 
-                // Hapus Log Transaksi
                 $stmtDel = $pdo->prepare("DELETE FROM stock_transactions WHERE id = :id");
                 $stmtDel->execute([':id' => $id_trx]);
 
-                // Insert Activity Log
                 $stmtActivity = $pdo->prepare("INSERT INTO activity_logs (user_id, action, description, created_at) VALUES (:user_id, :action, :description, :created_at)");
                 $stmtActivity->execute([
                     ':user_id'     => $_SESSION['user_id'] ?? 1,
@@ -224,47 +198,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 }
 
 // =========================================================================
-// 2. QUERY DATA STOK & SUMMARY TRANSAKSI
+// 2. QUERY DATA STOK & TRANSAKSI PER PART CODE
 // =========================================================================
 
-// A. Live Stok Terkini (Press & Paint)
-$stmtTotalStok = $pdo->query("SELECT SUM(qty_press) AS total_press, SUM(qty_paint) AS total_painting FROM stok_pp");
-$stokLive = $stmtTotalStok->fetch();
-$totalStokPress    = $stokLive['total_press'] ?? 0;
-$totalStokPainting = $stokLive['total_painting'] ?? 0;
+// A. Query Live Stok Per Part Code
+$partStockMap = [];
+$stmtPartStok = $pdo->query("SELECT part_code, qty_press, qty_paint FROM stok_pp");
+while ($row = $stmtPartStok->fetch(PDO::FETCH_ASSOC)) {
+    $partStockMap[$row['part_code']] = [
+        'press' => (int)($row['qty_press'] ?? 0),
+        'paint' => (int)($row['qty_paint'] ?? 0)
+    ];
+}
 
-// B. Rekap Total Transaksi PRESS, PAINT, ASSY (Bulanan, Mingguan, Harian, Shift 1-3)
-$sqlSummary = "SELECT 
-    -- PRESS
-    SUM(CASE WHEN role = 'PRESS' AND MONTH(production_date) = MONTH(ref.d) AND YEAR(production_date) = YEAR(ref.d) THEN qty ELSE 0 END) AS press_monthly,
-    SUM(CASE WHEN role = 'PRESS' AND YEARWEEK(production_date, 1) = YEARWEEK(ref.d, 1) THEN qty ELSE 0 END) AS press_weekly,
-    SUM(CASE WHEN role = 'PRESS' AND production_date = ref.d THEN qty ELSE 0 END) AS press_daily,
-    SUM(CASE WHEN role = 'PRESS' AND production_date = ref.d AND shift = 1 THEN qty ELSE 0 END) AS press_s1,
-    SUM(CASE WHEN role = 'PRESS' AND production_date = ref.d AND shift = 2 THEN qty ELSE 0 END) AS press_s2,
-    SUM(CASE WHEN role = 'PRESS' AND production_date = ref.d AND shift = 3 THEN qty ELSE 0 END) AS press_s3,
-
-    -- PAINT
-    SUM(CASE WHEN role IN ('PAINTING', 'PAINT') AND MONTH(production_date) = MONTH(ref.d) AND YEAR(production_date) = YEAR(ref.d) THEN qty ELSE 0 END) AS paint_monthly,
-    SUM(CASE WHEN role IN ('PAINTING', 'PAINT') AND YEARWEEK(production_date, 1) = YEARWEEK(ref.d, 1) THEN qty ELSE 0 END) AS paint_weekly,
-    SUM(CASE WHEN role IN ('PAINTING', 'PAINT') AND production_date = ref.d THEN qty ELSE 0 END) AS paint_daily,
-    SUM(CASE WHEN role IN ('PAINTING', 'PAINT') AND production_date = ref.d AND shift = 1 THEN qty ELSE 0 END) AS paint_s1,
-    SUM(CASE WHEN role IN ('PAINTING', 'PAINT') AND production_date = ref.d AND shift = 2 THEN qty ELSE 0 END) AS paint_s2,
-    SUM(CASE WHEN role IN ('PAINTING', 'PAINT') AND production_date = ref.d AND shift = 3 THEN qty ELSE 0 END) AS paint_s3,
-
-    -- ASSY
-    SUM(CASE WHEN role = 'ASSY' AND MONTH(production_date) = MONTH(ref.d) AND YEAR(production_date) = YEAR(ref.d) THEN qty ELSE 0 END) AS assy_monthly,
-    SUM(CASE WHEN role = 'ASSY' AND YEARWEEK(production_date, 1) = YEARWEEK(ref.d, 1) THEN qty ELSE 0 END) AS assy_weekly,
-    SUM(CASE WHEN role = 'ASSY' AND production_date = ref.d THEN qty ELSE 0 END) AS assy_daily,
-    SUM(CASE WHEN role = 'ASSY' AND production_date = ref.d AND shift = 1 THEN qty ELSE 0 END) AS assy_s1,
-    SUM(CASE WHEN role = 'ASSY' AND production_date = ref.d AND shift = 2 THEN qty ELSE 0 END) AS assy_s2,
-    SUM(CASE WHEN role = 'ASSY' AND production_date = ref.d AND shift = 3 THEN qty ELSE 0 END) AS assy_s3
-
+// B. Query Summary Transaksi Per Part Code
+$todayFilter = date('Y-m-d');
+$partTrxMap = [];
+$sqlSummaryPerPart = "SELECT 
+    part_code,
+    SUM(CASE WHEN MONTH(production_date) = MONTH(?) AND YEAR(production_date) = YEAR(?) THEN qty ELSE 0 END) AS monthly,
+    SUM(CASE WHEN YEARWEEK(production_date, 1) = YEARWEEK(?, 1) THEN qty ELSE 0 END) AS weekly,
+    SUM(CASE WHEN production_date = ? THEN qty ELSE 0 END) AS daily,
+    SUM(CASE WHEN production_date = ? AND shift = 1 THEN qty ELSE 0 END) AS shift1,
+    SUM(CASE WHEN production_date = ? AND shift = 2 THEN qty ELSE 0 END) AS shift2,
+    SUM(CASE WHEN production_date = ? AND shift = 3 THEN qty ELSE 0 END) AS shift3
 FROM stock_transactions 
-CROSS JOIN (SELECT :prod_date AS d) ref";
+WHERE role = ?
+GROUP BY part_code";
 
-$stmtSummary = $pdo->prepare($sqlSummary);
-$stmtSummary->execute([':prod_date' => $currentDate]);
-$summary = $stmtSummary->fetch();
+$stmtTrxPart = $pdo->prepare($sqlSummaryPerPart);
+$stmtTrxPart->execute([
+    $todayFilter,
+    $todayFilter,
+    $todayFilter,
+    $todayFilter,
+    $todayFilter,
+    $todayFilter,
+    $todayFilter,
+    $current_role
+]);
+
+while ($row = $stmtTrxPart->fetch(PDO::FETCH_ASSOC)) {
+    $partTrxMap[$row['part_code']] = $row;
+}
 
 // C. History Transaksi
 $queryHistory = "SELECT t.*, u.username 
@@ -278,7 +254,7 @@ $histories = $stmtHistory->fetchAll();
 ?>
 
 <div class="container-fluid py-3 px-4">
-    <!-- NOTIFIKASI[cite: 1] -->
+    <!-- NOTIFIKASI -->
     <?php if (isset($_SESSION['success'])): ?>
         <div class="alert alert-success alert-dismissible fade show py-2" role="alert">
             [SUKSES] <?= $_SESSION['success'];
@@ -295,96 +271,26 @@ $histories = $stmtHistory->fetchAll();
         </div>
     <?php endif; ?>
 
-    <!-- CARD RINGKASAN LIVE STOK & REKAP TRANSAKSI -->
+    <!-- MAIN SECTION: FORM BATCH INPUT & TABLE HISTORY -->
     <div class="row g-3 mb-3">
-        <!-- CARD LIVE STOK -->
-        <div class="col-lg-3 col-md-12">
-            <div class="card shadow-sm border-0 border-start border-primary border-4 h-100">
-                <div class="card-body py-2 px-3 d-flex flex-column justify-content-center">
-                    <small class="text-muted fw-bold d-block text-uppercase mb-2" style="font-size:0.75rem;">Live Stok Terkini</small>
-                    <div class="row text-center">
-                        <div class="col-6 border-end">
-                            <span class="d-block text-muted" style="font-size:0.75rem;">Stok Press</span>
-                            <span class="fs-4 fw-bold text-primary"><?= number_format($totalStokPress) ?></span>
-                        </div>
-                        <div class="col-6">
-                            <span class="d-block text-muted" style="font-size:0.75rem;">Stok Paint</span>
-                            <span class="fs-4 fw-bold text-info"><?= number_format($totalStokPainting) ?></span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- TABEL REKAP TRANSAKSI -->
-        <div class="col-lg-9 col-md-12">
-            <div class="card shadow-sm border-0">
-                <div class="card-body p-2">
-                    <div class="table-responsive">
-                        <table class="table table-bordered align-middle text-center mb-0" style="font-size: 0.78rem;">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Proses</th>
-                                    <th>Bulanan</th>
-                                    <th>Mingguan</th>
-                                    <th>Harian</th>
-                                    <th>Shift 1</th>
-                                    <th>Shift 2</th>
-                                    <th>Shift 3</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <!-- PRESS -->
-                                <tr>
-                                    <td class="fw-bold text-primary text-start">PRESS</td>
-                                    <td><?= number_format($summary['press_monthly'] ?? 0) ?></td>
-                                    <td><?= number_format($summary['press_weekly'] ?? 0) ?></td>
-                                    <td class="fw-bold"><?= number_format($summary['press_daily'] ?? 0) ?></td>
-                                    <td><?= number_format($summary['press_s1'] ?? 0) ?></td>
-                                    <td><?= number_format($summary['press_s2'] ?? 0) ?></td>
-                                    <td><?= number_format($summary['press_s3'] ?? 0) ?></td>
-                                </tr>
-                                <!-- PAINT -->
-                                <tr>
-                                    <td class="fw-bold text-info text-start">PAINTING</td>
-                                    <td><?= number_format($summary['paint_monthly'] ?? 0) ?></td>
-                                    <td><?= number_format($summary['paint_weekly'] ?? 0) ?></td>
-                                    <td class="fw-bold"><?= number_format($summary['paint_daily'] ?? 0) ?></td>
-                                    <td><?= number_format($summary['paint_s1'] ?? 0) ?></td>
-                                    <td><?= number_format($summary['paint_s2'] ?? 0) ?></td>
-                                    <td><?= number_format($summary['paint_s3'] ?? 0) ?></td>
-                                </tr>
-                                <!-- ASSY -->
-                                <tr class="table-success">
-                                    <td class="fw-bold text-success text-start">ASSY</td>
-                                    <td><?= number_format($summary['assy_monthly'] ?? 0) ?></td>
-                                    <td><?= number_format($summary['assy_weekly'] ?? 0) ?></td>
-                                    <td class="fw-bold"><?= number_format($summary['assy_daily'] ?? 0) ?></td>
-                                    <td><?= number_format($summary['assy_s1'] ?? 0) ?></td>
-                                    <td><?= number_format($summary['assy_s2'] ?? 0) ?></td>
-                                    <td><?= number_format($summary['assy_s3'] ?? 0) ?></td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row g-3">
-        <!-- FORM BATCH INPUT[cite: 1] -->
+        <!-- FORM BATCH INPUT STANDAR -->
         <div class="col-lg-5 col-md-12">
             <div class="card shadow-sm border-0">
-                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center py-2">
-                    <span class="fw-bold">Batch Input Finish Good</span>
-                    <span class="badge bg-light text-dark fw-bold">Shift <?= $currentShift ?></span>
+                <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center py-2">
+                    <span class="fw-bold" style="font-size: 0.9rem;">Input Finish Good</span>
+                    <button type="button" class="btn btn-sm btn-outline-light px-2 m-0 fw-bold" style="font-size: 0.5rem;" data-bs-toggle="modal" data-bs-target="#backdateModal">
+                        Input Susulan
+                    </button>
                 </div>
                 <div class="card-body p-3">
                     <form method="POST">
                         <input type="hidden" name="action" value="save_batch_press">
+                        <input type="hidden" name="production_date" value="<?= getProductionDateOnly($now) ?>">
+                        <input type="hidden" name="shift" value="<?= $currentShift ?>">
 
-                        <?php foreach ($default_parts as $index => $part): ?>
+                        <?php foreach ($default_parts as $index => $part):
+                            $code = $part['code'];
+                        ?>
                             <div class="border rounded p-2 mb-2 bg-light">
                                 <div class="row g-2 align-items-center">
                                     <div class="col-7">
@@ -402,7 +308,7 @@ $histories = $stmtHistory->fetchAll();
 
                         <div class="d-grid mt-3">
                             <button type="submit" class="btn btn-primary btn-sm fw-bold py-2">
-                                Submit Batch (Shift <?= $currentShift ?>)
+                                Submit
                             </button>
                         </div>
                     </form>
@@ -410,30 +316,37 @@ $histories = $stmtHistory->fetchAll();
             </div>
         </div>
 
-        <!-- TABEL HISTORY TRANSAKSI[cite: 1] -->
+        <!-- TABEL HISTORY TRANSAKSI -->
         <div class="col-lg-7 col-md-12">
             <div class="card shadow-sm border-0">
-                <div class="card-header bg-dark text-white fw-bold py-2">
-                    History Input & Aksi (<?= $current_role ?>)
+                <div class="card-header bg-dark text-white fw-bold py-2 d-flex justify-content-between align-items-center" style="font-size: 0.9rem;">
+                    <span>History Transaksi</span>
                 </div>
                 <div class="card-body p-0">
-                    <div class="table-responsive" style="max-height: 420px; overflow-y: auto;">
+                    <div class="table-responsive" style="max-height: 340px; overflow-y: auto;">
                         <table class="table table-hover align-middle text-center mb-0" style="font-size: 0.8rem;">
                             <thead class="table-light sticky-top">
                                 <tr>
-                                    <th>Waktu</th>
+                                    <th class="text-start" style="width: 120px;">Waktu Input</th>
+                                    <th style="width: 120px;">Tgl Prod</th>
                                     <th>Shift</th>
                                     <th class="text-start">Part Code</th>
                                     <th>Qty</th>
                                     <th>Operator</th>
-                                    <th>Aksi</th>
+                                    <th style="width: 130px;">Aksi</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php if (count($histories) > 0): ?>
                                     <?php foreach ($histories as $tr): ?>
                                         <tr>
-                                            <td class="text-muted"><?= date('d/m H:i', strtotime($tr['created_at'])) ?></td>
+                                            <td class="text-start">
+                                                <?= date('d/m/Y H:i', strtotime($tr['created_at'])) ?>
+                                            </td>
+                                            <td class=" text-muted">
+                                                <?= date('d/m/Y', strtotime($tr['production_date'])) ?>
+                                                <small class="d-block text-black-50" style="font-size:0.65rem;"><?= date('H:i', strtotime($tr['production_date'])) ?></small>
+                                            </td>
                                             <td><span class="badge bg-secondary">S<?= $tr['shift'] ?? '-' ?></span></td>
                                             <td class="text-start fw-bold"><?= htmlspecialchars($tr['part_code']) ?></td>
                                             <td class="text-success fw-bold">+<?= number_format($tr['qty']) ?></td>
@@ -448,7 +361,7 @@ $histories = $stmtHistory->fetchAll();
                                             </td>
                                         </tr>
 
-                                        <!-- MODAL EDIT[cite: 1] -->
+                                        <!-- MODAL EDIT -->
                                         <div class="modal fade" id="editModal<?= $tr['id'] ?>" tabindex="-1">
                                             <div class="modal-dialog modal-dialog-centered modal-sm">
                                                 <div class="modal-content">
@@ -460,9 +373,22 @@ $histories = $stmtHistory->fetchAll();
                                                         <div class="modal-body text-start">
                                                             <input type="hidden" name="action" value="edit_transaction">
                                                             <input type="hidden" name="id_transaction" value="<?= $tr['id'] ?>">
+
                                                             <div class="mb-2">
                                                                 <label class="form-label small fw-bold">Part Code</label>
                                                                 <input type="text" class="form-control form-control-sm" value="<?= htmlspecialchars($tr['part_code']) ?>" disabled>
+                                                            </div>
+                                                            <div class="mb-2">
+                                                                <label class="form-label small fw-bold">Tgl Produksi</label>
+                                                                <input type="date" name="production_date" class="form-control form-control-sm" value="<?= $tr['production_date'] ?>" required>
+                                                            </div>
+                                                            <div class="mb-2">
+                                                                <label class="form-label small fw-bold">Shift</label>
+                                                                <select name="shift" class="form-select form-select-sm">
+                                                                    <option value="1" <?= $tr['shift'] == 1 ? 'selected' : '' ?>>Shift 1</option>
+                                                                    <option value="2" <?= $tr['shift'] == 2 ? 'selected' : '' ?>>Shift 2</option>
+                                                                    <option value="3" <?= $tr['shift'] == 3 ? 'selected' : '' ?>>Shift 3</option>
+                                                                </select>
                                                             </div>
                                                             <div class="mb-2">
                                                                 <label class="form-label small fw-bold">Qty Baru</label>
@@ -477,7 +403,7 @@ $histories = $stmtHistory->fetchAll();
                                             </div>
                                         </div>
 
-                                        <!-- MODAL DELETE[cite: 1] -->
+                                        <!-- MODAL DELETE -->
                                         <div class="modal fade" id="deleteModal<?= $tr['id'] ?>" tabindex="-1">
                                             <div class="modal-dialog modal-dialog-centered modal-sm">
                                                 <div class="modal-content">
@@ -510,6 +436,151 @@ $histories = $stmtHistory->fetchAll();
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- LIVE STOK & TOTAL TRANSAKSI PER PART CODE -->
+    <div class="row g-3 mb-3">
+        <!-- CARD 1: LIVE STOK SEMUA PART CODE -->
+        <div class="col-md-5">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-dark text-white py-2 border-bottom-0 d-flex justify-content-between align-items-center">
+                    <span class="fw-bold" style="font-size: 0.9rem;">
+                        <i class="bi bi-box-seam me-1"></i> Live Stok
+                    </span>
+                </div>
+                <div class="card-body p-2">
+                    <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+                        <table class="table table-hover align-middle text-center mb-0" style="font-size: 0.78rem;">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th class="text-start">Part Code</th>
+                                    <th>Stok Press</th>
+                                    <th>Stok Paint</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php
+                                foreach ($default_parts as $p):
+                                    $c = $p['code'];
+                                    $stok_press = $partStockMap[$c]['press'] ?? 0;
+                                    $stok_paint = $partStockMap[$c]['paint'] ?? 0;
+                                ?>
+                                    <tr>
+                                        <td class="text-start fw-bold">
+                                            <?= $c ?>
+                                            <small class="d-block text-muted fw-normal" style="font-size:0.7rem;"><?= $p['name'] ?></small>
+                                        </td>
+                                        <td class="fw-bold text-primary"><?= number_format($stok_press) ?></td>
+                                        <td class="fw-bold text-info"><?= number_format($stok_paint) ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CARD 2: TOTAL TRANSAKSI PER PART CODE -->
+        <div class="col-md-7">
+            <div class="card shadow-sm border-0 border-start h-100">
+                <div class="card-header bg-dark text-white py-2 border-bottom-0 d-flex justify-content-between align-items-center">
+                    <span class="fw-bold" style="font-size: 0.9rem;">
+                        Total Transaksi
+                    </span>
+                </div>
+                <div class="card-body p-2">
+                    <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+                        <table class="table table-hover align-middle text-center mb-0" style="font-size: 0.78rem;">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th class="text-start">Part Code</th>
+                                    <th>Shift 1</th>
+                                    <th>Shift 2</th>
+                                    <th>Shift 3</th>
+                                    <th>Daily</th>
+                                    <th>Weekly</th>
+                                    <th>Monthly</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($default_parts as $p):
+                                    $c = $p['code'];
+                                    $trx = $partTrxMap[$c] ?? [];
+                                ?>
+                                    <tr>
+                                        <td class="text-start fw-bold">
+                                            <?= $c ?>
+                                            <small class="d-block text-muted fw-normal" style="font-size:0.7rem;"><?= $p['name'] ?></small>
+                                        </td>
+                                        <td><?= number_format((int)($trx['shift1'] ?? 0)) ?></td>
+                                        <td><?= number_format((int)($trx['shift2'] ?? 0)) ?></td>
+                                        <td><?= number_format((int)($trx['shift3'] ?? 0)) ?></td>
+                                        <td class="fw-bold text-success"><?= number_format((int)($trx['daily'] ?? 0)) ?></td>
+                                        <td class="fw-bold text-warning"><?= number_format((int)($trx['weekly'] ?? 0)) ?></td>
+                                        <td class="fw-bold text-primary"><?= number_format((int)($trx['monthly'] ?? 0)) ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL INPUT SUSULAN (BACKDATE) -->
+<div class="modal fade" id="backdateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="POST">
+                <div class="modal-header bg-warning text-white py-2">
+                    <h6 class="modal-title fw-bold">Input Susulan</h6>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="save_batch_press">
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label small fw-bold">Tanggal Produksi</label>
+                            <input type="date" name="production_date" class="form-control form-control-sm" value="<?= date('Y-m-d') ?>" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-bold">Shift</label>
+                            <select name="shift" class="form-select form-select-sm" required>
+                                <option value="1">Shift 1</option>
+                                <option value="2">Shift 2</option>
+                                <option value="3">Shift 3</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <hr class="my-2">
+
+                    <?php foreach ($default_parts as $index => $part): ?>
+                        <div class="border rounded p-2 mb-2 bg-light">
+                            <div class="row g-2 align-items-center">
+                                <div class="col-7">
+                                    <input type="hidden" name="parts[<?= $index ?>][part_code]" value="<?= $part['code'] ?>">
+                                    <input type="hidden" name="parts[<?= $index ?>][part_name]" value="<?= $part['name'] ?>">
+                                    <div class="fw-bold text-dark" style="font-size: 0.85rem;"><?= $part['code'] ?></div>
+                                    <small class="text-muted d-block" style="font-size: 0.75rem;"><?= $part['name'] ?></small>
+                                </div>
+                                <div class="col-5">
+                                    <input type="number" name="parts[<?= $index ?>][qty]" class="form-control form-control-sm text-center fw-bold" min="0" value="0" placeholder="Qty">
+                                </div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
+                    <button type="submit" class="btn btn-primary btn-sm fw-bold">Submit</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
