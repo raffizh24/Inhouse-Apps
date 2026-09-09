@@ -27,16 +27,16 @@ $default_parts = [
 ];
 
 // =========================================================================
-// 1. HANDLE ACTION BATCH SAVE, EDIT, & DELETE
+// 1. HANDLE ACTION BATCH SAVE, EDIT, & DELETE (PRESS)
 // =========================================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
-    // --- A. BATCH INPUT (OTOMATIS TANGGAL HARI INI & SHIFT 1 / BISA CUSTOM DARI MODAL) ---
+    // --- A. BATCH INPUT PRESS ---
     if ($_POST['action'] === 'save_batch_press') {
         $parts          = $_POST['parts'] ?? [];
-        $selectedDate  = $_POST['production_date'] ?? date('Y-m-d');
-        $selectedShift = (int)($_POST['shift'] ?? 1);
-        $now           = date('Y-m-d H:i:s');
+        $selectedDate   = $_POST['production_date'] ?? date('Y-m-d');
+        $selectedShift  = (int)($_POST['shift'] ?? 1);
+        $now            = date('Y-m-d H:i:s');
         $inserted_count = 0;
 
         try {
@@ -53,8 +53,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                        VALUES (:user_id, :role, :part_code, 'stok_pp', 'IN', :qty, :shift, :prod_date, :created_at)";
             $stmtLog = $pdo->prepare($sqlLog);
 
-            $sqlActivity = "INSERT INTO activity_logs (user_id, action, description, created_at) 
-                            VALUES (:user_id, :action, :description, :created_at)";
+            $sqlActivity = "INSERT INTO activity_logs (user_id, action, description, target_table, part_code, old_data, new_data, created_at) 
+                            VALUES (:user_id, :action, :description, :target_table, :part_code, :old_data, :new_data, :created_at)";
             $stmtActivity = $pdo->prepare($sqlActivity);
 
             foreach ($parts as $item) {
@@ -73,20 +73,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 ]);
 
                 $stmtLog->execute([
-                    ':user_id'   => $_SESSION['user_id'] ?? 1,
-                    ':role'      => $current_role,
-                    ':part_code' => $part_code,
-                    ':qty'       => $qty,
-                    ':shift'     => $selectedShift,
-                    ':prod_date' => $selectedDate,
+                    ':user_id'    => $_SESSION['user_id'] ?? 1,
+                    ':role'       => $current_role,
+                    ':part_code'  => $part_code,
+                    ':qty'        => $qty,
+                    ':shift'      => $selectedShift,
+                    ':prod_date'  => $selectedDate,
                     ':created_at' => $now
                 ]);
 
                 $stmtActivity->execute([
-                    ':user_id'     => $_SESSION['user_id'] ?? 1,
-                    ':action'      => 'INSERT_BATCH_PRESS',
-                    ':description' => "Input FG Press [Shift {$selectedShift} | Tgl: {$selectedDate}]: {$part_code} ({$part_name}) Qty: {$qty}",
-                    ':created_at'  => $now
+                    ':user_id'      => $_SESSION['user_id'] ?? 1,
+                    ':action'       => 'INSERT',
+                    ':description'  => "Input FG Press [Shift {$selectedShift} | Tgl: {$selectedDate}]: {$part_code} ({$part_name}) Qty: {$qty}",
+                    ':target_table' => 'stock_transactions',
+                    ':part_code'    => $part_code,
+                    ':old_data'     => null,
+                    ':new_data'     => json_encode(['qty' => $qty, 'shift' => $selectedShift, 'production_date' => $selectedDate]),
+                    ':created_at'   => $now
                 ]);
 
                 $inserted_count++;
@@ -108,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit();
     }
 
-    // --- B. EDIT TRANSAKSI ---
+    // --- B. EDIT TRANSAKSI PRESS ---
     if ($_POST['action'] === 'edit_transaction') {
         $id_trx    = (int)$_POST['id_transaction'];
         $new_qty   = (int)$_POST['new_qty'];
@@ -119,7 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         try {
             $pdo->beginTransaction();
 
-            $stmtOld = $pdo->prepare("SELECT part_code, qty FROM stock_transactions WHERE id = :id");
+            $stmtOld = $pdo->prepare("SELECT part_code, qty, shift, production_date FROM stock_transactions WHERE id = :id");
             $stmtOld->execute([':id' => $id_trx]);
             $oldTrx = $stmtOld->fetch();
 
@@ -137,12 +141,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     ':id'        => $id_trx
                 ]);
 
-                $stmtActivity = $pdo->prepare("INSERT INTO activity_logs (user_id, action, description, created_at) VALUES (:user_id, :action, :description, :created_at)");
+                $stmtActivity = $pdo->prepare("INSERT INTO activity_logs (user_id, action, description, target_table, part_code, old_data, new_data, created_at) VALUES (:user_id, :action, :description, :target_table, :part_code, :old_data, :new_data, :created_at)");
                 $stmtActivity->execute([
-                    ':user_id'     => $_SESSION['user_id'] ?? 1,
-                    ':action'      => 'EDIT_TRX_PRESS',
-                    ':description' => "Edit Trx #{$id_trx} ({$oldTrx['part_code']}) -> Qty: {$new_qty}, Shift: {$new_shift}, Tgl: {$new_date}",
-                    ':created_at'  => $now
+                    ':user_id'      => $_SESSION['user_id'] ?? 1,
+                    ':action'       => 'UPDATE',
+                    ':description'  => "Edit Trx #{$id_trx} ({$oldTrx['part_code']}) -> Qty: {$new_qty}, Shift: {$new_shift}, Tgl: {$new_date}",
+                    ':target_table' => 'stock_transactions',
+                    ':part_code'    => $oldTrx['part_code'],
+                    ':old_data'     => json_encode(['qty' => $oldTrx['qty'], 'shift' => $oldTrx['shift'], 'production_date' => $oldTrx['production_date']]),
+                    ':new_data'     => json_encode(['qty' => $new_qty, 'shift' => $new_shift, 'production_date' => $new_date]),
+                    ':created_at'   => $now
                 ]);
 
                 $pdo->commit();
@@ -157,7 +165,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit();
     }
 
-    // --- C. DELETE TRANSAKSI ---
+    // --- C. DELETE TRANSAKSI PRESS ---
     if ($_POST['action'] === 'delete_transaction') {
         $id_trx = (int)$_POST['id_transaction'];
         $now    = date('Y-m-d H:i:s');
@@ -165,7 +173,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         try {
             $pdo->beginTransaction();
 
-            $stmtOld = $pdo->prepare("SELECT part_code, qty FROM stock_transactions WHERE id = :id");
+            $stmtOld = $pdo->prepare("SELECT part_code, qty, shift, production_date FROM stock_transactions WHERE id = :id");
             $stmtOld->execute([':id' => $id_trx]);
             $oldTrx = $stmtOld->fetch();
 
@@ -176,12 +184,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $stmtDel = $pdo->prepare("DELETE FROM stock_transactions WHERE id = :id");
                 $stmtDel->execute([':id' => $id_trx]);
 
-                $stmtActivity = $pdo->prepare("INSERT INTO activity_logs (user_id, action, description, created_at) VALUES (:user_id, :action, :description, :created_at)");
+                $stmtActivity = $pdo->prepare("INSERT INTO activity_logs (user_id, action, description, target_table, part_code, old_data, new_data, created_at) VALUES (:user_id, :action, :description, :target_table, :part_code, :old_data, :new_data, :created_at)");
                 $stmtActivity->execute([
-                    ':user_id'     => $_SESSION['user_id'] ?? 1,
-                    ':action'      => 'DELETE_TRX_PRESS',
-                    ':description' => "Hapus Trx #{$id_trx} ({$oldTrx['part_code']}) Qty: {$oldTrx['qty']}",
-                    ':created_at'  => $now
+                    ':user_id'      => $_SESSION['user_id'] ?? 1,
+                    ':action'       => 'DELETE',
+                    ':description'  => "Hapus Trx #{$id_trx} ({$oldTrx['part_code']}) Qty: {$oldTrx['qty']}",
+                    ':target_table' => 'stock_transactions',
+                    ':part_code'    => $oldTrx['part_code'],
+                    ':old_data'     => json_encode(['qty' => $oldTrx['qty'], 'shift' => $oldTrx['shift'], 'production_date' => $oldTrx['production_date']]),
+                    ':new_data'     => null,
+                    ':created_at'   => $now
                 ]);
 
                 $pdo->commit();
