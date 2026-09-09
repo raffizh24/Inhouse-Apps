@@ -18,8 +18,7 @@ function getShift($time)
     if ($time >= '18:00' || $time < '01:30') return 2;
     return 3;
 }
-// === UNTUK TESTING: Set waktu ke tanggal 4 September jam 10:00 (Shift 1) ===
-// $now = '2026-09-04 17:00:00';
+
 $now                    = date('Y-m-d H:i:s');
 $currentDate            = getProductionDateOnly($now);
 $currentShift           = getShift(date('H:i', strtotime($now)));
@@ -283,10 +282,6 @@ $parts_piping = [
 
 // HANDLE FINISH PRODUCTION BATCH
 if (isset($_POST['btn_submit_batch'])) {
-
-    // Pastikan Timezone sudah WIB
-    date_default_timezone_set('Asia/Jakarta');
-
     $category = $_POST['category'] ?? 'injection';
     $parts    = $_POST['parts'] ?? [];
 
@@ -313,11 +308,6 @@ if (isset($_POST['btn_submit_batch'])) {
         exit;
     }
 
-    // Set Tanggal Lengkap dengan Jam & Shift
-    $now            = date('Y-m-d H:i:s'); // Mengandung Tanggal + Jam Menit Detik
-    $currentTime    = date('H:i:s');
-    $currentShiftTr = function_exists('getShift') ? getShift($currentTime) : '1';
-
     // Pemisahan Database & Kolom Stok
     if ($category === 'painting') {
         $dbTarget     = 'seid_ac_pp';
@@ -340,7 +330,7 @@ if (isset($_POST['btn_submit_batch'])) {
                 INSERT INTO `$dbTarget`.`transaction`
                 (part_code, date_tr, shift, qty, status)
                 VALUES
-                ('$partCode', '$now', '$currentShiftTr', '$qty', 'ASSY')
+                ('$partCode', '$currentDateTr', '$currentShiftTr', '$qty', 'ASSY')
             ");
 
             if (!$queryInsert) {
@@ -364,7 +354,7 @@ if (isset($_POST['btn_submit_batch'])) {
 
         echo "<script>
             alert('Finish production recorded successfully');
-            location.href='index.php';
+            location.href='index.php?page=upload_actual';
         </script>";
         exit;
     } catch (Exception $e) {

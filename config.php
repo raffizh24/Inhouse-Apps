@@ -4,7 +4,7 @@ session_start();
 $host = "localhost";
 $user = "root";
 $pass = "";
-$db   = "seid_ac_assy-plan"; // <-- Nama database kamu
+$db   = "seid_ac_InhouseApps"; // <-- Nama database kamu
 
 $conn = new mysqli($host, $user, $pass, $db);
 if ($conn->connect_error) {
