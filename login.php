@@ -13,11 +13,21 @@ if (isset($_POST['login'])) {
 
     if ($user = $result->fetch_assoc()) {
         // Cek password langsung tanpa hash (plain text)
-        if ($password == $user['password']) {
-            $_SESSION['username'] = $user['username'];
-            $_SESSION['role']     = $user['role'];
-            header("Location: index.php");
-            exit;
+        // Contoh pada logika setelah validasi password berhasil:
+        $_SESSION['user_id']  = $user['id'];
+        $_SESSION['username'] = $user['username'];
+        $_SESSION['role']     = $user['role']; // PRESS, PAINTING, HEPI, INJECTION, dll.
+
+        // Array role yang langsung masuk ke Input FG
+        $fg_roles = ['PRESS', 'PAINTING', 'HEPI', 'INJECTION'];
+
+        if (in_array($_SESSION['role'], $fg_roles)) {
+            // Redirect langsung ke file handler atau routing index
+            header("Location: index.php?page=" . strtolower($_SESSION['role']));
+            exit();
+        } else {
+            header("Location: index.php?page=dashboard");
+            exit();
         }
     }
     $error = "Username atau password salah!";

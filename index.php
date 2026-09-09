@@ -1,9 +1,30 @@
 <?php
-require 'config.php';
-check_login();
+session_start();
+date_default_timezone_set('Asia/Jakarta');
 
-// Routing halaman
-$page = htmlspecialchars($_GET['page'] ?? 'dashboard', ENT_QUOTES, 'UTF-8');
+// --- LOGIKA TANGGAL PRODUKSI & SHIFT ---
+function getProductionDateOnly($datetime)
+{
+    $time = date('H:i', strtotime($datetime));
+    $date = date('Y-m-d', strtotime($datetime));
+
+    if ($time < '09:00') {
+        return date('Y-m-d', strtotime($date . ' -1 day'));
+    }
+    return $date;
+}
+
+function getShift($time)
+{
+    if ($time >= '09:00' && $time < '18:00') return 1;
+    if ($time >= '18:00' || $time < '01:30') return 2;
+    return 3;
+}
+
+$now                    = date('Y-m-d H:i:s');
+$currentDate            = getProductionDateOnly($now);
+$currentShift           = getShift(date('H:i', strtotime($now)));
+$productionDateDisplay  = date('d/m/Y', strtotime($currentDate));
 ?>
 
 <!DOCTYPE html>
@@ -11,95 +32,41 @@ $page = htmlspecialchars($_GET['page'] ?? 'dashboard', ENT_QUOTES, 'UTF-8');
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inhouse Apps</title>
+    <title>Dashboard Production</title>
     <link rel="stylesheet" href="css/bootstrap.min.css">
 </head>
 
-<body class="bg-light">
-    <!-- NAVBAR NAVIGASI -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4 sticky-top">
+<body>
+
+    <!-- NAVBAR -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-3">
         <div class="container-fluid">
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-                <span class="navbar-toggler-icon"></span>
-            </button>
+            <a class="navbar-brand fw-bold" href="#">INHOUSE APPS</a>
 
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                    <li class="nav-item">
-                        <a class="nav-link <?= $page === 'dashboard' ? 'active fw-bold' : '' ?>" href="index.php?page=dashboard">
-                            Dashboard & Plan
-                        </a>
-                    </li>
+            <div class="ms-auto d-flex align-items-center gap-3">
+                <!-- DISPLAY SHIFT & TANGGAL PRODUKSI -->
+                <div class="d-flex align-items-center gap-1">
+                    <span class="badge bg-primary fs-7 py-2 px-2">Tanggal: <?= $productionDateDisplay ?></span>
+                    <span class="badge bg-warning text-dark fs-7 py-2 px-2=">Shift <?= $currentShift ?></span>
+                </div>
 
-                    <!-- MENU KHUSUS PRODUCTION -->
-                    <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'production'): ?>
-                        <li class="nav-item">
-                            <a class="nav-link <?= $page === 'upload_actual' ? 'active fw-bold' : '' ?>" href="index.php?page=upload_actual">
-                                Pengambilan Part
-                            </a>
-                        </li>
-                    <?php endif; ?>
-
-                    <!-- MENU KHUSUS WAREHOUSE (ATAU PRODUCTION BISA LIHAT JUGA) -->
-                    <?php if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['warehouse', 'production'])): ?>
-                        <li class="nav-item">
-                            <a class="nav-link <?= $page === 'warehouse_view' ? 'active fw-bold' : '' ?>" href="index.php?page=warehouse_view">
-                                Monitoring Warehouse
-                            </a>
-                        </li>
-                    <?php endif; ?>
-                </ul>
-
-                <div class="d-flex align-items-center text-white">
-                    <span class="me-3">
-                        User: <strong><?= htmlspecialchars($_SESSION['username'] ?? 'Guest') ?></strong>
-                        (<span class="badge bg-warning text-dark"><?= strtoupper(htmlspecialchars($_SESSION['role'] ?? '-')) ?></span>)
-                    </span>
-                    <a href="logout.php" class="btn btn-outline-light btn-sm">Logout</a>
+                <!-- USER & LOGOUT -->
+                <div class="d-flex align-items-center gap-2 text-white border-start ps-3">
+                    <div class="lh-1 text-end">
+                        <span class="d-block text-white-50" style="font-size: 0.7rem;">User logged in:</span>
+                        <span class="fw-bold" style="font-size: 0.85rem;"><?= $_SESSION['username'] ?? 'Operator' ?></span>
+                    </div>
+                    <a href="logout.php" class="btn btn-outline-danger btn-sm py-2 px-2 lh-1 d-flex align-items-center">Logout</a>
                 </div>
             </div>
         </div>
     </nav>
 
-    <!-- KONTEN UTAMA -->
-    <div class="container-fluid px-4">
-        <?php
-        switch ($page) {
-            case 'upload_actual':
-                if (isset($_SESSION['role']) && $_SESSION['role'] === 'production') {
-                    include 'page/upload_actual.php';
-                } else {
-                    echo "<div class='alert alert-danger'>Akses ditolak. Halaman khusus Production.</div>";
-                }
-                break;
-
-            case 'warehouse_view':
-                if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['warehouse', 'production'])) {
-                    include 'page/warehouse_view.php';
-                } else {
-                    echo "<div class='alert alert-danger'>Akses ditolak. Halaman khusus Warehouse.</div>";
-                }
-                break;
-
-            case 'dashboard':
-            default:
-                // 1. TAMPILKAN UPLOAD PLAN (HANYA UNTUK ROLE PRODUCTION)
-                if (isset($_SESSION['role']) && $_SESSION['role'] === 'production') {
-                    echo "<div id='upload-plan-section' class='mb-4'>";
-                    include 'page/upload_plan.php';
-                    echo "</div>";
-                    echo "<hr class='my-4'>";
-                }
-
-                // 2. TAMPILKAN DASHBOARD DI BAGIAN BAWAH
-                echo "<div id='dashboard-section'>";
-                include 'page/dashboard.php';
-                echo "</div>";
-                break;
-        }
-        ?>
-    </div>
+    <!-- LOAD HALAMAN PAGE (MISAL PRESS.PHP) -->
+    <?php
+    $page = $_GET['page'] ?? 'press';
+    include "page/" . strtolower($page) . ".php";
+    ?>
 
     <script src="js/bootstrap.bundle.min.js"></script>
 </body>
