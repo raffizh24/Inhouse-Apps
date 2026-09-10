@@ -5,6 +5,13 @@ require 'config.php';
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
 
+// Pastikan koneksi database tersedia ($conn atau $pdo)
+if (!isset($conn) && isset($pdo)) {
+    $conn = $pdo;
+} elseif (!isset($conn) && !isset($pdo)) {
+    die("Koneksi database gagal dimuat.");
+}
+
 if (isset($_POST['upload'])) {
     $file = $_FILES['excel_file']['tmp_name'];
 
@@ -42,17 +49,15 @@ if (isset($_POST['upload'])) {
                     if ($dt) {
                         $detectedMonth = $dt->format('m');
                         $detectedYear = $dt->format('Y');
-                        break; // Ambil sampel tanggal pertama lalu stop loop check
+                        break;
                     }
                 }
             }
 
-            // Jika tanggal bulan terdeteksi, hapus data lama di bulan & tahun tersebut
+            // Jika tanggal bulan terdeteksi, hapus data lama di bulan & tahun tersebut (Gaya PDO)
             if ($detectedMonth && $detectedYear) {
                 $stmtDelete = $conn->prepare("DELETE FROM planning WHERE MONTH(tanggal) = ? AND YEAR(tanggal) = ?");
-                $stmtDelete->bind_param("ss", $detectedMonth, $detectedYear);
-                $stmtDelete->execute();
-                $stmtDelete->close();
+                $stmtDelete->execute([$detectedMonth, $detectedYear]);
             }
 
             // =========================================================================
@@ -62,7 +67,7 @@ if (isset($_POST['upload'])) {
 
             $stmt = $conn->prepare("INSERT INTO planning (model, tanggal, shift, seq, qty_plan) VALUES (?, ?, ?, ?, ?)");
             if (!$stmt) {
-                throw new Exception("SQL Prepare Error: " . $conn->error);
+                throw new Exception("SQL Prepare Error");
             }
 
             $currentDateFormatted = null;
@@ -113,27 +118,26 @@ if (isset($_POST['upload'])) {
 
                         if (is_numeric($qtyClean) && (int)$qtyClean > 0) {
                             $qtyInt = (int)$qtyClean;
-                            $stmt->bind_param("ssiii", $model, $currentDateFormatted, $currentShiftNum, $seqClean, $qtyInt);
-                            $stmt->execute();
+
+                            // Eksekusi insert menggunakan PDO (masukkan parameter ke dalam array execute)
+                            $stmt->execute([$model, $currentDateFormatted, $currentShiftNum, $seqClean, $qtyInt]);
                             $insertedCount++;
                         }
                     }
                 }
             }
 
-            $stmt->close();
-
-            header("Location: index.php?page=upload_plan&status=success&count=" . $insertedCount);
+            header("Location: index.php?page=assy&status=success&count=" . $insertedCount);
             exit();
         } catch (Exception $e) {
-            header("Location: index.php?page=upload_plan&status=error&msg=" . urlencode($e->getMessage()));
+            header("Location: index.php?page=assy&status=error&msg=" . urlencode($e->getMessage()));
             exit();
         }
     } else {
-        header("Location: index.php?page=upload_plan&status=error&msg=" . urlencode("File tidak ditemukan."));
+        header("Location: index.php?page=assy&status=error&msg=" . urlencode("File tidak ditemukan."));
         exit();
     }
 } else {
-    header("Location: index.php?page=upload_plan");
+    header("Location: index.php?page=assy");
     exit();
 }

@@ -24,15 +24,19 @@ if (isset($_POST['login'])) {
                 // Simpan data session
                 $_SESSION['user_id']  = $user['id'];
                 $_SESSION['username'] = $user['username'];
-                $_SESSION['role']     = $user['role']; // PRESS, PAINTING, HEPI, INJECTION
+                $_SESSION['role']     = $user['role']; // PRESS, PAINTING, HEPI, INJECTION, ASSEMBLY
 
-                $fg_roles = ['PRESS', 'PAINTING', 'HEPI', 'INJECTION'];
+                // Tambahkan 'ASSEMBLY' dan 'ASSY' ke daftar role FG
+                $fg_roles = ['PRESS', 'PAINTING', 'HEPI', 'INJECTION', 'ASSEMBLY', 'ASSY', 'CMC'];
 
                 if (in_array($_SESSION['role'], $fg_roles)) {
-                    // Routing otomatis: PAINTING diarahkan ke page/paint.php
                     $page = strtolower($_SESSION['role']);
+
+                    // Custom routing untuk penamaan page tertentu
                     if ($page === 'painting') {
                         $page = 'paint';
+                    } elseif ($page === 'assembly') {
+                        $page = 'assy';
                     }
 
                     header("Location: index.php?page=" . $page);
