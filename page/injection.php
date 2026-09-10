@@ -336,7 +336,7 @@ $histories = $stmtHistory->fetchAll();
             <div class="card shadow-sm border-0">
                 <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center py-2">
                     <span class="fw-bold" style="font-size: 0.9rem;">Input FG Injection (Area <?= $selectedArea ?>)</span>
-                    <button type="button" class="btn btn-sm btn-outline-light px-2 m-0 fw-bold" style="font-size: 0.5rem;" data-bs-toggle="modal" data-bs-target="#backdateModal">
+                    <button type="button" class="btn btn-sm btn-warning px-2 m-0 fw-bold" style="font-size: 0.5rem;" data-bs-toggle="modal" data-bs-target="#backdateModal">
                         Input Susulan
                     </button>
                 </div>
@@ -347,7 +347,7 @@ $histories = $stmtHistory->fetchAll();
                         <input type="hidden" name="production_date" value="<?= date('Y-m-d') ?>">
                         <input type="hidden" name="shift" value="<?= $currentShift ?>">
 
-                        <div class="style-container" style="max-height: 400px; overflow-y: auto;">
+                        <div class="style-container" style="max-height: 230px; overflow-y: auto;">
                             <?php $index = 0;
                             foreach ($filteredParts as $part): ?>
                                 <div class="border rounded p-2 mb-2 bg-light">
@@ -384,7 +384,7 @@ $histories = $stmtHistory->fetchAll();
                     <span>History Transaksi Injection</span>
                 </div>
                 <div class="card-body p-0">
-                    <div class="table-responsive" style="max-height: 480px; overflow-y: auto;">
+                    <div class="table-responsive" style="max-height: 318px; overflow-y: auto;">
                         <table class="table table-hover align-middle text-center mb-0" style="font-size: 0.8rem;">
                             <thead class="table-light sticky-top">
                                 <tr>
@@ -510,7 +510,7 @@ $histories = $stmtHistory->fetchAll();
                     </span>
                 </div>
                 <div class="card-body p-2">
-                    <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                    <div class="table-responsive" style="max-height: 260px; overflow-y: auto;">
                         <table class="table table-hover align-middle text-center mb-0" style="font-size: 0.78rem;">
                             <thead class="table-light sticky-top">
                                 <tr>
@@ -548,7 +548,7 @@ $histories = $stmtHistory->fetchAll();
                     </span>
                 </div>
                 <div class="card-body p-2">
-                    <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                    <div class="table-responsive" style="max-height: 260px; overflow-y: auto;">
                         <table class="table table-hover align-middle text-center mb-0" style="font-size: 0.78rem;">
                             <thead class="table-light sticky-top">
                                 <tr>
@@ -689,6 +689,7 @@ $histories = $stmtHistory->fetchAll();
                             $grand_s2 = 0;
                             $grand_s3 = 0;
                             $grand_daily = 0;
+                            $hasData = false;
 
                             foreach ($filteredParts as $p):
                                 $c     = $p['code'];
@@ -698,6 +699,12 @@ $histories = $stmtHistory->fetchAll();
                                 $s3    = (int)($trx['shift3'] ?? 0);
                                 $daily = (int)($trx['daily'] ?? 0);
 
+                                // FILTER: Lewati part jika tidak ada transaksi (Total Daily = 0)
+                                if ($daily === 0) {
+                                    continue;
+                                }
+
+                                $hasData      = true;
                                 $grand_s1    += $s1;
                                 $grand_s2    += $s2;
                                 $grand_s3    += $s3;
@@ -713,16 +720,24 @@ $histories = $stmtHistory->fetchAll();
                                     <td class="fw-bold fs-6 text-success bg-light"><?= number_format($daily) ?></td>
                                 </tr>
                             <?php endforeach; ?>
+
+                            <?php if (!$hasData): ?>
+                                <tr>
+                                    <td colspan="7" class="text-muted py-4">Belum ada transaksi produksi Injection untuk hari ini.</td>
+                                </tr>
+                            <?php endif; ?>
                         </tbody>
-                        <tfoot class="table-secondary fw-bold fs-6">
-                            <tr>
-                                <td colspan="3" class="text-end py-2">TOTAL OUTPUT:</td>
-                                <td class="text-primary"><?= number_format($grand_s1) ?></td>
-                                <td class="text-primary"><?= number_format($grand_s2) ?></td>
-                                <td class="text-primary"><?= number_format($grand_s3) ?></td>
-                                <td class="text-success fs-6 bg-warning bg-opacity-25"><?= number_format($grand_daily) ?></td>
-                            </tr>
-                        </tfoot>
+                        <?php if ($hasData): ?>
+                            <tfoot class="table-secondary fw-bold fs-6">
+                                <tr>
+                                    <td colspan="3" class="text-end py-2">TOTAL OUTPUT:</td>
+                                    <td class="text-primary"><?= number_format($grand_s1) ?></td>
+                                    <td class="text-primary"><?= number_format($grand_s2) ?></td>
+                                    <td class="text-primary"><?= number_format($grand_s3) ?></td>
+                                    <td class="text-success fs-6 bg-warning bg-opacity-25"><?= number_format($grand_daily) ?></td>
+                                </tr>
+                            </tfoot>
+                        <?php endif; ?>
                     </table>
                 </div>
             </div>

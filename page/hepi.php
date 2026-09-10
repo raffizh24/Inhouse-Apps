@@ -1,67 +1,104 @@
 <?php
-// Pastikan koneksi PDO dan config ter-load dengan benar
-require_once __DIR__ . '/../config.php';
-global $pdo;
+// hepi.php - Form Input & Management Transaksi HE & PIPING (Tabel Stok Terpisah: stok_he & stok_piping)
+
+// 0. Safety Lead Variabel Koneksi
+if (!isset($pdo) || $pdo === null) {
+    if (isset($conn) && $conn !== null) {
+        $pdo = $conn;
+    } elseif (isset($koneksi) && $koneksi !== null) {
+        $pdo = $koneksi;
+    } elseif (file_exists(__DIR__ . '/../config.php')) {
+        require_once __DIR__ . '/../config.php';
+    }
+}
 
 date_default_timezone_set('Asia/Jakarta');
 
 if (!isset($pdo) || $pdo === null) {
-    die("Koneksi database gagal dimuat. Periksa file config.php Anda.");
+    die("Koneksi database gagal dimuat. Periksa konfigurasi koneksi Anda.");
 }
 
 // Validasi Session / Role Access
-$allowed_roles = ['PRESS', 'PAINTING', 'HEPI', 'INJECTION'];
+$allowed_roles = ['PRESS', 'PAINTING', 'HEPI', 'INJECTION', 'PRODUCTION', 'WAREHOUSE'];
 if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'] ?? '', $allowed_roles)) {
     // header("Location: login.php");
     // exit();
 }
 
-$current_role  = $_SESSION['role'] ?? 'PAINTING';
+$current_role = $_SESSION['role'] ?? 'HEPI';
+$now          = date('Y-m-d H:i:s');
+$currentShift = $currentShift ?? 1;
 
-// List Part Preset
-$default_parts = [
-    ['code' => 'PEVA-A055VDKZ', 'name' => 'EVAP REF 162'],
-    ['code' => 'GCAB-A646JBPZ', 'name' => 'Top Table'],
-    ['code' => 'GCAB-A767JBPZ', 'name' => 'Front Panel'],
-    ['code' => 'LCHS-A800JBPZ', 'name' => 'Base Pan'],
-    ['code' => 'PPLT-B282JBPZ', 'name' => 'Side Cover R']
+// 1. Data Master Part
+$parts_he = [
+    ['code' => 'PEVA-B161JBPZ', 'name' => 'Evaporator'],
+    ['code' => 'DCON-B070JBEZ', 'name' => 'Condensor SR Normal'],
+    ['code' => 'DCON-B105JBEZ', 'name' => 'Condensor DR Normal'],
+    ['code' => 'DCON-B074JBEZ', 'name' => 'Condensor SR Inverter'],
+    ['code' => 'DCON-B075JBEZ', 'name' => 'Condensor DR Inverter']
 ];
 
-// Helper untuk redirect agar terarah ke page=paint
-$redirectPage = (strtolower($current_role) === 'painting') ? 'paint' : strtolower($current_role);
+$parts_piping = [
+    ['code' => 'CPIPCC533JBKZ', 'name' => 'TUBE ASSY'],
+    ['code' => 'CPIPCC616JBKZ', 'name' => 'SUCTION 7K/5K-2'],
+    ['code' => 'CPIPCC625JBKZ', 'name' => 'SUCTION 9K2'],
+    ['code' => 'CPIPCC571JBKZ', 'name' => 'SUCTION 6K/8K/10K'],
+    ['code' => 'CPIPCC624JBKZ', 'name' => 'SUCTION MUFFLER 13K'],
+    ['code' => 'CPIPCK426JBKZ', 'name' => 'SUCTION 9CAY'],
+    ['code' => 'CCYC-F289JBKZ', 'name' => 'DISCHARGE 5K2'],
+    ['code' => 'CCYC-F091JBKZ', 'name' => 'DISCHARGE 7K'],
+    ['code' => 'CCYC-F255JBKZ', 'name' => 'DISCHARGE 9K2'],
+    ['code' => 'CPIPCC572JBKZ', 'name' => 'DISCHARGE 6K & 8K'],
+    ['code' => 'CPIPCC561JBKZ', 'name' => 'DISCHARGE 10K'],
+    ['code' => 'CPIPCC623JBKZ', 'name' => 'DISCHARGE 13K'],
+    ['code' => 'CCYC-F311JBKZ', 'name' => 'DISCHARGE 9CAY'],
+    ['code' => 'CCPY-A455JBKZ', 'name' => 'CAPILARY 5K'],
+    ['code' => 'CCPY-A456JBKZ', 'name' => 'CAPILARY 7K'],
+    ['code' => 'CCPY-A457JBKZ', 'name' => 'CAPILARY 9K'],
+    ['code' => 'CCPY-A458JBKZ', 'name' => 'CAPILARY X6/X8'],
+    ['code' => 'CCPY-A459JBKZ', 'name' => 'CAPILARY X10'],
+    ['code' => 'CCPY-A516JBKZ', 'name' => 'CAPILARY X13'],
+    ['code' => 'PCPY-C007JB1Z', 'name' => 'CAPILARY 9CAY']
+];
+
+// Active Area Filter (Default: HE)
+$selectedArea  = $_GET['area'] ?? 'HE';
+$filteredParts = ($selectedArea === 'HE') ? $parts_he : $parts_piping;
+
+// Penentuan Dinamis Target Tabel & Kolom Stok Berdasarkan Area
+$targetTable = ($selectedArea === 'HE') ? 'stok_he' : 'stok_piping';
+$qtyColumn   = ($selectedArea === 'HE') ? 'qty_he' : 'qty_piping';
 
 // =========================================================================
-// 1. HANDLE ACTION BATCH SAVE, EDIT, & DELETE (PAINTING)
+// 2. HANDLE ACTION BATCH SAVE, EDIT, & DELETE (HE & PIPING)
 // =========================================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
-    $now = date('Y-m-d H:i:s');
-
-    // --- A. BATCH INPUT PAINTING ---
-    if ($_POST['action'] === 'save_batch_paint') {
+    // --- A. BATCH INPUT HE / PIPING ---
+    if ($_POST['action'] === 'save_batch_hepi') {
         $parts          = $_POST['parts'] ?? [];
         $selectedDate   = $_POST['production_date'] ?? date('Y-m-d');
         $selectedShift  = (int)($_POST['shift'] ?? 1);
+        $area           = $_POST['area'] ?? $selectedArea;
         $inserted_count = 0;
+
+        $currentTable  = ($area === 'HE') ? 'stok_he' : 'stok_piping';
+        $currentQtyCol = ($area === 'HE') ? 'qty_he' : 'qty_piping';
 
         try {
             $pdo->beginTransaction();
 
-            // 1. Query Stok
-            $sqlStok = "INSERT INTO stok_pp (part_code, part_name, qty_paint, qty_press) 
-                        VALUES (:part_code, :part_name, :qty_p, :qty_minus)
+            $sqlStok = "INSERT INTO {$currentTable} (part_code, part_name, {$currentQtyCol}) 
+                        VALUES (:part_code, :part_name, :qty)
                         ON DUPLICATE KEY UPDATE 
-                            part_name = VALUES(part_name),
-                            qty_paint = qty_paint + VALUES(qty_paint),
-                            qty_press = qty_press + VALUES(qty_press)";
+                            part_name        = VALUES(part_name),
+                            {$currentQtyCol} = {$currentQtyCol} + VALUES({$currentQtyCol})";
             $stmtStok = $pdo->prepare($sqlStok);
 
-            // 2. Query Log Transaksi
             $sqlLog = "INSERT INTO stock_transactions (user_id, role, part_code, source_table, transaction_type, qty, shift, production_date, created_at) 
-                       VALUES (:user_id, :role, :part_code, 'stok_pp', 'IN', :qty, :shift, :prod_date, :created_at)";
+                       VALUES (:user_id, :role, :part_code, :source_table, 'IN', :qty, :shift, :prod_date, :created_at)";
             $stmtLog = $pdo->prepare($sqlLog);
 
-            // 3. Query Activity Log
             $sqlActivity = "INSERT INTO activity_logs (user_id, action, description, target_table, part_code, old_data, new_data, created_at) 
                             VALUES (:user_id, :action, :description, :target_table, :part_code, :old_data, :new_data, :created_at)";
             $stmtActivity = $pdo->prepare($sqlActivity);
@@ -75,34 +112,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     continue;
                 }
 
-                // Execute Stok
                 $stmtStok->execute([
                     ':part_code' => $part_code,
                     ':part_name' => $part_name,
-                    ':qty_p'     => $qty,
-                    ':qty_minus' => -$qty
+                    ':qty'       => $qty
                 ]);
 
-                // Execute Log Transaksi
                 $stmtLog->execute([
-                    ':user_id'    => $_SESSION['user_id'] ?? 1,
-                    ':role'       => $current_role,
-                    ':part_code'  => $part_code,
-                    ':qty'        => $qty,
-                    ':shift'      => $selectedShift,
-                    ':prod_date'  => $selectedDate,
-                    ':created_at' => $now
+                    ':user_id'      => $_SESSION['user_id'] ?? 1,
+                    ':role'         => 'HEPI',
+                    ':part_code'    => $part_code,
+                    ':source_table' => $currentTable,
+                    ':qty'          => $qty,
+                    ':shift'        => $selectedShift,
+                    ':prod_date'    => $selectedDate,
+                    ':created_at'   => $now
                 ]);
 
-                // Execute Activity Log (Enum -> 'INSERT')
                 $stmtActivity->execute([
                     ':user_id'      => $_SESSION['user_id'] ?? 1,
                     ':action'       => 'INSERT',
-                    ':description'  => "Input FG Painting [Shift {$selectedShift} | Tgl: {$selectedDate}]: {$part_code} ({$part_name}) Qty: {$qty}",
+                    ':description'  => "Input FG HEPI [Area {$area} | Shift {$selectedShift} | Tgl: {$selectedDate}]: {$part_code} ({$part_name}) Qty: {$qty}",
                     ':target_table' => 'stock_transactions',
                     ':part_code'    => $part_code,
                     ':old_data'     => null,
-                    ':new_data'     => json_encode(['qty' => $qty, 'shift' => $selectedShift, 'production_date' => $selectedDate]),
+                    ':new_data'     => json_encode(['qty' => $qty, 'shift' => $selectedShift, 'production_date' => $selectedDate, 'area' => $area, 'table' => $currentTable]),
                     ':created_at'   => $now
                 ]);
 
@@ -112,7 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $pdo->commit();
 
             if ($inserted_count > 0) {
-                $_SESSION['success'] = "Berhasil menyimpan $inserted_count item Part Painting (Shift $selectedShift - Tgl $selectedDate)!";
+                $_SESSION['success'] = "Berhasil menyimpan $inserted_count item Part $area (Shift $selectedShift - Tgl $selectedDate) ke $currentTable!";
             } else {
                 $_SESSION['error'] = "Tidak ada item yang disimpan. Masukkan Qty lebih dari 0.";
             }
@@ -121,11 +155,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $_SESSION['error'] = "Gagal menyimpan batch data: " . $e->getMessage();
         }
 
-        header("Location: index.php?page=" . $redirectPage);
+        header("Location: index.php?page=hepi&area=" . $area);
         exit();
     }
 
-    // --- B. EDIT TRANSAKSI PAINTING ---
+    // --- B. EDIT TRANSAKSI ---
     if ($_POST['action'] === 'edit_transaction') {
         $id_trx    = (int)$_POST['id_transaction'];
         $new_qty   = (int)$_POST['new_qty'];
@@ -135,23 +169,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         try {
             $pdo->beginTransaction();
 
-            $stmtOld = $pdo->prepare("SELECT part_code, qty, shift, production_date FROM stock_transactions WHERE id = :id");
+            $stmtOld = $pdo->prepare("SELECT part_code, source_table, qty, shift, production_date FROM stock_transactions WHERE id = :id");
             $stmtOld->execute([':id' => $id_trx]);
             $oldTrx = $stmtOld->fetch();
 
             if ($oldTrx) {
-                $selisih = $new_qty - $oldTrx['qty'];
+                $selisih      = $new_qty - $oldTrx['qty'];
+                $srcTable     = $oldTrx['source_table'];
+                $qtyColumnTrx = ($srcTable === 'stok_he') ? 'qty_he' : 'qty_piping';
 
-                // Update qty_paint & qty_press
-                $stmtUpdateStok = $pdo->prepare("UPDATE stok_pp 
-                                                 SET qty_paint = qty_paint + :selisih1, 
-                                                     qty_press = qty_press - :selisih2 
-                                                 WHERE part_code = :part_code");
-                $stmtUpdateStok->execute([
-                    ':selisih1'  => $selisih,
-                    ':selisih2'  => $selisih,
-                    ':part_code' => $oldTrx['part_code']
-                ]);
+                $stmtUpdateStok = $pdo->prepare("UPDATE {$srcTable} SET {$qtyColumnTrx} = {$qtyColumnTrx} + :selisih WHERE part_code = :part_code");
+                $stmtUpdateStok->execute([':selisih' => $selisih, ':part_code' => $oldTrx['part_code']]);
 
                 $stmtUpdateLog = $pdo->prepare("UPDATE stock_transactions SET qty = :qty, shift = :shift, production_date = :prod_date WHERE id = :id");
                 $stmtUpdateLog->execute([
@@ -161,12 +189,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     ':id'        => $id_trx
                 ]);
 
-                // Activity Log Edit (Enum -> 'UPDATE')
                 $stmtActivity = $pdo->prepare("INSERT INTO activity_logs (user_id, action, description, target_table, part_code, old_data, new_data, created_at) VALUES (:user_id, :action, :description, :target_table, :part_code, :old_data, :new_data, :created_at)");
                 $stmtActivity->execute([
                     ':user_id'      => $_SESSION['user_id'] ?? 1,
                     ':action'       => 'UPDATE',
-                    ':description'  => "Edit Trx Painting #{$id_trx} ({$oldTrx['part_code']}) -> Qty: {$new_qty}, Shift: {$new_shift}, Tgl: {$new_date}",
+                    ':description'  => "Edit Trx HEPI #{$id_trx} ({$oldTrx['part_code']}) -> Qty: {$new_qty}, Shift: {$new_shift}, Tgl: {$new_date}",
                     ':target_table' => 'stock_transactions',
                     ':part_code'    => $oldTrx['part_code'],
                     ':old_data'     => json_encode(['qty' => $oldTrx['qty'], 'shift' => $oldTrx['shift'], 'production_date' => $oldTrx['production_date']]),
@@ -175,51 +202,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 ]);
 
                 $pdo->commit();
-                $_SESSION['success'] = "Transaksi Painting berhasil diperbarui!";
+                $_SESSION['success'] = "Transaksi HE/PIPING berhasil diperbarui!";
             }
         } catch (Exception $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             $_SESSION['error'] = "Gagal memperbarui transaksi: " . $e->getMessage();
         }
 
-        header("Location: index.php?page=" . $redirectPage);
+        header("Location: index.php?page=hepi&area=" . $selectedArea);
         exit();
     }
 
-    // --- C. DELETE TRANSAKSI PAINTING ---
+    // --- C. DELETE TRANSAKSI ---
     if ($_POST['action'] === 'delete_transaction') {
         $id_trx = (int)$_POST['id_transaction'];
 
         try {
             $pdo->beginTransaction();
 
-            // 1. Ambil data transaksi lama
-            $stmtOld = $pdo->prepare("SELECT part_code, qty, shift, production_date FROM stock_transactions WHERE id = :id");
+            $stmtOld = $pdo->prepare("SELECT part_code, source_table, qty, shift, production_date FROM stock_transactions WHERE id = :id");
             $stmtOld->execute([':id' => $id_trx]);
             $oldTrx = $stmtOld->fetch();
 
             if ($oldTrx) {
-                // 2. Kembalikan stok
-                $stmtSubStok = $pdo->prepare("UPDATE stok_pp 
-                                             SET qty_paint = qty_paint - :qty1, 
-                                                 qty_press = qty_press + :qty2 
-                                             WHERE part_code = :part_code");
-                $stmtSubStok->execute([
-                    ':qty1'      => $oldTrx['qty'],
-                    ':qty2'      => $oldTrx['qty'],
-                    ':part_code' => $oldTrx['part_code']
-                ]);
+                $srcTable     = $oldTrx['source_table'];
+                $qtyColumnTrx = ($srcTable === 'stok_he') ? 'qty_he' : 'qty_piping';
 
-                // 3. Hapus data transaksi
+                $stmtSubStok = $pdo->prepare("UPDATE {$srcTable} SET {$qtyColumnTrx} = {$qtyColumnTrx} - :qty WHERE part_code = :part_code");
+                $stmtSubStok->execute([':qty' => $oldTrx['qty'], ':part_code' => $oldTrx['part_code']]);
+
                 $stmtDel = $pdo->prepare("DELETE FROM stock_transactions WHERE id = :id");
                 $stmtDel->execute([':id' => $id_trx]);
 
-                // 4. Activity Log Delete (Enum -> 'DELETE')
                 $stmtActivity = $pdo->prepare("INSERT INTO activity_logs (user_id, action, description, target_table, part_code, old_data, new_data, created_at) VALUES (:user_id, :action, :description, :target_table, :part_code, :old_data, :new_data, :created_at)");
                 $stmtActivity->execute([
                     ':user_id'      => $_SESSION['user_id'] ?? 1,
                     ':action'       => 'DELETE',
-                    ':description'  => "Hapus Trx Painting #{$id_trx} ({$oldTrx['part_code']}) Qty: {$oldTrx['qty']}",
+                    ':description'  => "Hapus Trx HEPI #{$id_trx} ({$oldTrx['part_code']}) Qty: {$oldTrx['qty']}",
                     ':target_table' => 'stock_transactions',
                     ':part_code'    => $oldTrx['part_code'],
                     ':old_data'     => json_encode(['qty' => $oldTrx['qty'], 'shift' => $oldTrx['shift'], 'production_date' => $oldTrx['production_date']]),
@@ -228,35 +247,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 ]);
 
                 $pdo->commit();
-                $_SESSION['success'] = "Transaksi berhasil dihapus dan stok telah disesuaikan kembali!";
+                $_SESSION['success'] = "Transaksi berhasil dihapus dan stok {$srcTable} disesuaikan!";
             }
         } catch (Exception $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             $_SESSION['error'] = "Gagal menghapus transaksi: " . $e->getMessage();
         }
 
-        header("Location: index.php?page=" . $redirectPage);
+        header("Location: index.php?page=hepi&area=" . $selectedArea);
         exit();
     }
 }
 
 // =========================================================================
-// 2. QUERY DATA STOK & TRANSAKSI PER PART CODE
+// 3. QUERY DATA STOK & TRANSAKSI PER PART CODE
 // =========================================================================
 
-// A. Query Live Stok Per Part Code
+// A. Query Live Stok Per Part Code dari Tabel Sesuai Area
 $partStockMap = [];
-$stmtPartStok = $pdo->query("SELECT part_code, qty_press, qty_paint FROM stok_pp");
+$stmtPartStok = $pdo->query("SELECT part_code, {$qtyColumn} AS qty FROM {$targetTable}");
 while ($row = $stmtPartStok->fetch(PDO::FETCH_ASSOC)) {
-    $partStockMap[$row['part_code']] = [
-        'press' => (int)($row['qty_press'] ?? 0),
-        'paint' => (int)($row['qty_paint'] ?? 0)
-    ];
+    $partStockMap[$row['part_code']] = (int)($row['qty'] ?? 0);
 }
 
-// B. Query Summary Transaksi Per Part Code
+// B. Query Summary Transaksi Per Part Code dari `stock_transactions`
 $todayFilter = date('Y-m-d');
-$partTrxMap = [];
+$partTrxMap  = [];
 $sqlSummaryPerPart = "SELECT 
     part_code,
     SUM(CASE WHEN MONTH(production_date) = MONTH(?) AND YEAR(production_date) = YEAR(?) THEN qty ELSE 0 END) AS monthly,
@@ -266,7 +282,7 @@ $sqlSummaryPerPart = "SELECT
     SUM(CASE WHEN production_date = ? AND shift = 2 THEN qty ELSE 0 END) AS shift2,
     SUM(CASE WHEN production_date = ? AND shift = 3 THEN qty ELSE 0 END) AS shift3
 FROM stock_transactions 
-WHERE role = ?
+WHERE source_table = ?
 GROUP BY part_code";
 
 $stmtTrxPart = $pdo->prepare($sqlSummaryPerPart);
@@ -278,27 +294,36 @@ $stmtTrxPart->execute([
     $todayFilter,
     $todayFilter,
     $todayFilter,
-    $current_role
+    $targetTable
 ]);
 
 while ($row = $stmtTrxPart->fetch(PDO::FETCH_ASSOC)) {
     $partTrxMap[$row['part_code']] = $row;
 }
 
-// C. History Transaksi
+// C. History Transaksi HEPI Terbaru (Dipisah Berdasarkan Area/Source Table Aktif)
 $queryHistory = "SELECT t.*, u.username 
                  FROM stock_transactions t
                  LEFT JOIN users u ON t.user_id = u.id
-                 WHERE t.role = :role AND t.transaction_type = 'IN'
+                 WHERE t.source_table = :source_table AND t.transaction_type = 'IN'
                  ORDER BY t.id DESC LIMIT 20";
 $stmtHistory = $pdo->prepare($queryHistory);
-$stmtHistory->execute([':role' => $current_role]);
-$histories = $stmtHistory->fetchAll();
+$stmtHistory->execute([':source_table' => $targetTable]);
+$histories   = $stmtHistory->fetchAll();
 ?>
 
 <div class="container-fluid py-3 px-4">
-    <!-- Laporan Foto Leader -->
-    <div class="d-flex justify-content-end align-items-center mb-3 ms-auto">
+    <!-- Header Page & Tab Area Filter -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="btn-group" role="group">
+            <a href="index.php?page=hepi&area=HE" class="btn btn-sm <?= $selectedArea === 'HE' ? 'btn-primary' : 'btn-outline-primary' ?> fw-bold">
+                Area HE (<?= count($parts_he) ?> Part)
+            </a>
+            <a href="index.php?page=hepi&area=PIPING" class="btn btn-sm <?= $selectedArea === 'PIPING' ? 'btn-primary' : 'btn-outline-primary' ?> fw-bold">
+                Area PIPING (<?= count($parts_piping) ?> Part)
+            </a>
+        </div>
+
         <button type="button" class="btn btn-sm btn-success fw-bold px-2 py-1" style="font-size: 0.75rem;" data-bs-toggle="modal" data-bs-target="#reportPhotoModal">
             Laporan Output Produksi
         </button>
@@ -323,43 +348,45 @@ $histories = $stmtHistory->fetchAll();
 
     <!-- MAIN SECTION: FORM BATCH INPUT & TABLE HISTORY -->
     <div class="row g-3 mb-3">
-        <!-- FORM BATCH INPUT STANDAR -->
+        <!-- FORM BATCH INPUT -->
         <div class="col-lg-5 col-md-12">
             <div class="card shadow-sm border-0">
                 <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center py-2">
-                    <span class="fw-bold" style="font-size: 0.9rem;">Output Produksi Painting</span>
+                    <span class="fw-bold" style="font-size: 0.9rem;">Output Production</span>
                     <button type="button" class="btn btn-sm btn-warning px-2 m-0 fw-bold" style="font-size: 0.5rem;" data-bs-toggle="modal" data-bs-target="#backdateModal">
                         Input Susulan
                     </button>
                 </div>
                 <div class="card-body p-3">
-                    <form method="POST">
-                        <input type="hidden" name="action" value="save_batch_paint">
-                        <input type="hidden" name="production_date" value="<?= getProductionDateOnly($now) ?>">
+                    <form method="POST" action="index.php?page=hepi&area=<?= $selectedArea ?>">
+                        <input type="hidden" name="action" value="save_batch_hepi">
+                        <input type="hidden" name="area" value="<?= $selectedArea ?>">
+                        <input type="hidden" name="production_date" value="<?= date('Y-m-d') ?>">
                         <input type="hidden" name="shift" value="<?= $currentShift ?>">
 
-                        <!-- Container Scrollable dengan max-height -->
-                        <div class="pe-1" style="max-height: 243px; overflow-y: auto;">
-                            <?php foreach ($default_parts as $index => $part): ?>
+                        <div class="style-container" style="max-height: 220px; overflow-y: auto;">
+                            <?php $index = 0;
+                            foreach ($filteredParts as $part): ?>
                                 <div class="border rounded p-2 mb-2 bg-light">
                                     <div class="row g-2 align-items-center">
                                         <div class="col-7">
                                             <input type="hidden" name="parts[<?= $index ?>][part_code]" value="<?= $part['code'] ?>">
                                             <input type="hidden" name="parts[<?= $index ?>][part_name]" value="<?= $part['name'] ?>">
-                                            <div class="fw-bold text-dark" style="font-size: 0.85rem;"><?= $part['code'] ?></div>
-                                            <small class="text-muted d-block" style="font-size: 0.75rem;"><?= $part['name'] ?></small>
+                                            <div class="fw-bold text-dark" style="font-size: 0.82rem;"><?= $part['code'] ?></div>
+                                            <small class="text-muted d-block" style="font-size: 0.73rem;"><?= $part['name'] ?></small>
                                         </div>
                                         <div class="col-5">
                                             <input type="number" name="parts[<?= $index ?>][qty]" class="form-control form-control-sm text-center fw-bold" min="0" value="0" placeholder="Qty">
                                         </div>
                                     </div>
                                 </div>
-                            <?php endforeach; ?>
+                            <?php $index++;
+                            endforeach; ?>
                         </div>
 
                         <div class="d-grid mt-3">
                             <button type="submit" class="btn btn-primary btn-sm fw-bold py-2">
-                                Submit
+                                Submit Area <?= $selectedArea ?>
                             </button>
                         </div>
                     </form>
@@ -367,19 +394,19 @@ $histories = $stmtHistory->fetchAll();
             </div>
         </div>
 
-        <!-- TABEL HISTORY TRANSAKSI -->
+        <!-- TABEL HISTORY TRANSAKSI (DIPISAH PER AREA) -->
         <div class="col-lg-7 col-md-12">
             <div class="card shadow-sm border-0">
                 <div class="card-header bg-dark text-white fw-bold py-2 d-flex justify-content-between align-items-center" style="font-size: 0.9rem;">
-                    <span>Riwayat Transaksi Painting</span>
+                    <span>Riwayat Transaksi</span>
                 </div>
                 <div class="card-body p-0">
-                    <div class="table-responsive" style="max-height: 330px; overflow-y: auto;">
+                    <div class="table-responsive" style="max-height: 220px; overflow-y: auto;">
                         <table class="table table-hover align-middle text-center mb-0" style="font-size: 0.8rem;">
                             <thead class="table-light sticky-top">
                                 <tr>
                                     <th class="text-start" style="width: 120px;">Waktu Input</th>
-                                    <th style="width: 120px;">Tgl Prod</th>
+                                    <th style="width: 100px;">Tgl Prod</th>
                                     <th>Shift</th>
                                     <th class="text-start">Part Code</th>
                                     <th>Qty</th>
@@ -415,7 +442,7 @@ $histories = $stmtHistory->fetchAll();
                                         <div class="modal fade" id="editModal<?= $tr['id'] ?>" tabindex="-1">
                                             <div class="modal-dialog modal-dialog-centered modal-sm">
                                                 <div class="modal-content">
-                                                    <form method="POST">
+                                                    <form method="POST" action="index.php?page=hepi&area=<?= $selectedArea ?>">
                                                         <div class="modal-header py-2">
                                                             <h6 class="modal-title fw-bold">Edit Trx #<?= $tr['id'] ?></h6>
                                                             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -457,7 +484,7 @@ $histories = $stmtHistory->fetchAll();
                                         <div class="modal fade" id="deleteModal<?= $tr['id'] ?>" tabindex="-1">
                                             <div class="modal-dialog modal-dialog-centered modal-sm">
                                                 <div class="modal-content">
-                                                    <form method="POST">
+                                                    <form method="POST" action="index.php?page=hepi&area=<?= $selectedArea ?>">
                                                         <div class="modal-header py-2">
                                                             <h6 class="modal-title fw-bold">Hapus Trx #<?= $tr['id'] ?></h6>
                                                             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -465,7 +492,7 @@ $histories = $stmtHistory->fetchAll();
                                                         <div class="modal-body text-start">
                                                             <input type="hidden" name="action" value="delete_transaction">
                                                             <input type="hidden" name="id_transaction" value="<?= $tr['id'] ?>">
-                                                            Yakin ingin menghapus input <b><?= htmlspecialchars($tr['part_code']) ?></b> sejumlah <b><?= $tr['qty'] ?></b>?
+                                                            Yakin menghapus input <b><?= htmlspecialchars($tr['part_code']) ?></b> Qty <b><?= $tr['qty'] ?></b>?
                                                         </div>
                                                         <div class="modal-footer py-1">
                                                             <button type="submit" class="btn btn-danger btn-sm">Hapus</button>
@@ -478,7 +505,7 @@ $histories = $stmtHistory->fetchAll();
                                     <?php endforeach; ?>
                                 <?php else: ?>
                                     <tr>
-                                        <td colspan="7" class="text-muted py-4">Belum ada riwayat transaksi.</td>
+                                        <td colspan="7" class="text-muted py-4">Belum ada riwayat transaksi untuk Area <?= $selectedArea ?>.</td>
                                     </tr>
                                 <?php endif; ?>
                             </tbody>
@@ -496,33 +523,30 @@ $histories = $stmtHistory->fetchAll();
             <div class="card shadow-sm border-0 h-100">
                 <div class="card-header bg-dark text-white py-2 border-bottom-0 d-flex justify-content-between align-items-center">
                     <span class="fw-bold" style="font-size: 0.9rem;">
-                        Live Stok Painting
+                        Live Stok
                     </span>
                 </div>
                 <div class="card-body p-2">
-                    <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+                    <div class="table-responsive" style="max-height: 320px; overflow-y: auto;">
                         <table class="table table-hover align-middle text-center mb-0" style="font-size: 0.78rem;">
                             <thead class="table-light sticky-top">
                                 <tr>
                                     <th class="text-start">Part Code</th>
-                                    <th>Stok Press</th>
-                                    <th>Stok Paint</th>
+                                    <th>Qty Stock</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php
-                                foreach ($default_parts as $p):
+                                foreach ($filteredParts as $p):
                                     $c = $p['code'];
-                                    $stok_press = $partStockMap[$c]['press'] ?? 0;
-                                    $stok_paint = $partStockMap[$c]['paint'] ?? 0;
+                                    $stok = $partStockMap[$c] ?? 0;
                                 ?>
                                     <tr>
                                         <td class="text-start fw-bold">
                                             <?= $c ?>
                                             <small class="d-block text-muted fw-normal" style="font-size:0.7rem;"><?= $p['name'] ?></small>
                                         </td>
-                                        <td class="fw-bold text-primary"><?= number_format($stok_press) ?></td>
-                                        <td class="fw-bold text-info"><?= number_format($stok_paint) ?></td>
+                                        <td class="fw-bold text-primary"><?= number_format($stok) ?></td>
                                     </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -537,11 +561,11 @@ $histories = $stmtHistory->fetchAll();
             <div class="card shadow-sm border-0 border-start h-100">
                 <div class="card-header bg-dark text-white py-2 border-bottom-0 d-flex justify-content-between align-items-center">
                     <span class="fw-bold" style="font-size: 0.9rem;">
-                        Total Transaksi Painting
+                        Total Transaksi Area <?= $selectedArea ?>
                     </span>
                 </div>
                 <div class="card-body p-2">
-                    <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+                    <div class="table-responsive" style="max-height: 320px; overflow-y: auto;">
                         <table class="table table-hover align-middle text-center mb-0" style="font-size: 0.78rem;">
                             <thead class="table-light sticky-top">
                                 <tr>
@@ -555,7 +579,7 @@ $histories = $stmtHistory->fetchAll();
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php foreach ($default_parts as $p):
+                                <?php foreach ($filteredParts as $p):
                                     $c = $p['code'];
                                     $trx = $partTrxMap[$c] ?? [];
                                 ?>
@@ -585,13 +609,14 @@ $histories = $stmtHistory->fetchAll();
 <div class="modal fade" id="backdateModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
-            <form method="POST">
+            <form method="POST" action="index.php?page=hepi&area=<?= $selectedArea ?>">
                 <div class="modal-header bg-warning text-white py-2">
-                    <h6 class="modal-title fw-bold">Input Susulan Painting</h6>
+                    <h6 class="modal-title fw-bold">Input Susulan (Area <?= $selectedArea ?>)</h6>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <input type="hidden" name="action" value="save_batch_paint">
+                    <input type="hidden" name="action" value="save_batch_hepi">
+                    <input type="hidden" name="area" value="<?= $selectedArea ?>">
 
                     <div class="row g-2 mb-3">
                         <div class="col-6">
@@ -610,21 +635,25 @@ $histories = $stmtHistory->fetchAll();
 
                     <hr class="my-2">
 
-                    <?php foreach ($default_parts as $index => $part): ?>
-                        <div class="border rounded p-2 mb-2 bg-light">
-                            <div class="row g-2 align-items-center">
-                                <div class="col-7">
-                                    <input type="hidden" name="parts[<?= $index ?>][part_code]" value="<?= $part['code'] ?>">
-                                    <input type="hidden" name="parts[<?= $index ?>][part_name]" value="<?= $part['name'] ?>">
-                                    <div class="fw-bold text-dark" style="font-size: 0.85rem;"><?= $part['code'] ?></div>
-                                    <small class="text-muted d-block" style="font-size: 0.75rem;"><?= $part['name'] ?></small>
-                                </div>
-                                <div class="col-5">
-                                    <input type="number" name="parts[<?= $index ?>][qty]" class="form-control form-control-sm text-center fw-bold" min="0" value="0" placeholder="Qty">
+                    <div style="max-height: 300px; overflow-y: auto;">
+                        <?php $index = 0;
+                        foreach ($filteredParts as $part): ?>
+                            <div class="border rounded p-2 mb-2 bg-light">
+                                <div class="row g-2 align-items-center">
+                                    <div class="col-7">
+                                        <input type="hidden" name="parts[<?= $index ?>][part_code]" value="<?= $part['code'] ?>">
+                                        <input type="hidden" name="parts[<?= $index ?>][part_name]" value="<?= $part['name'] ?>">
+                                        <div class="fw-bold text-dark" style="font-size: 0.85rem;"><?= $part['code'] ?></div>
+                                        <small class="text-muted d-block" style="font-size: 0.75rem;"><?= $part['name'] ?></small>
+                                    </div>
+                                    <div class="col-5">
+                                        <input type="number" name="parts[<?= $index ?>][qty]" class="form-control form-control-sm text-center fw-bold" min="0" value="0" placeholder="Qty">
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    <?php endforeach; ?>
+                        <?php $index++;
+                        endforeach; ?>
+                    </div>
                 </div>
                 <div class="modal-footer py-2">
                     <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
@@ -642,16 +671,15 @@ $histories = $stmtHistory->fetchAll();
             <div class="modal-header bg-primary text-white py-3">
                 <div>
                     <h5 class="modal-title fw-bold mb-0">
-                        LAPORAN OUTPUT PRODUKSI - <?= strtoupper($current_role) ?>
+                        LAPORAN OUTPUT PRODUKSI - AREA <?= $selectedArea ?>
                     </h5>
-                    <small class="text-white-50">Tanggal Produksi: <b><?= date('d/m/Y', strtotime($todayFilter)) ?></b> | Update: <b><?= date('H:i') ?> WIB</b></small>
                 </div>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4 bg-white" id="printableReportArea">
                 <div class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-3">
                     <div>
-                        <h4 class="fw-bold text-dark mb-0">LAPORAN OUTPUT PAINTING</h4>
+                        <h4 class="fw-bold text-dark mb-0">LAPORAN HARIAN OUTPUT - AREA <?= $selectedArea ?></h4>
                     </div>
                     <div class="text-end">
                         <div class="fw-bold text-secondary">TANGGAL: <?= date('d/m/Y', strtotime($todayFilter)) ?></div>
@@ -659,7 +687,7 @@ $histories = $stmtHistory->fetchAll();
                     </div>
                 </div>
                 <div class="table-responsive">
-                    <table class="table table-bordered align-middle text-center mb-0" style="font-size: 1.05rem;">
+                    <table class="table table-bordered align-middle text-center mb-0" style="font-size: 0.9rem;">
                         <thead class="table-dark text-uppercase fs-6">
                             <tr>
                                 <th style="width: 50px;">No</th>
@@ -680,7 +708,7 @@ $histories = $stmtHistory->fetchAll();
                             $grand_daily = 0;
                             $hasData = false;
 
-                            foreach ($default_parts as $p):
+                            foreach ($filteredParts as $p):
                                 $c     = $p['code'];
                                 $trx   = $partTrxMap[$c] ?? [];
                                 $s1    = (int)($trx['shift1'] ?? 0);
@@ -703,27 +731,27 @@ $histories = $stmtHistory->fetchAll();
                                     <td class="fw-bold bg-light"><?= $no++ ?></td>
                                     <td class="text-start fw-bold text-dark"><?= $c ?></td>
                                     <td class="text-start"><?= $p['name'] ?></td>
-                                    <td class="fw-bold fs-5 text-dark"><?= number_format($s1) ?></td>
-                                    <td class="fw-bold fs-5 text-dark"><?= number_format($s2) ?></td>
-                                    <td class="fw-bold fs-5 text-dark"><?= number_format($s3) ?></td>
-                                    <td class="fw-bold fs-4 text-success bg-light"><?= number_format($daily) ?></td>
+                                    <td class="fw-bold fs-6 text-dark"><?= number_format($s1) ?></td>
+                                    <td class="fw-bold fs-6 text-dark"><?= number_format($s2) ?></td>
+                                    <td class="fw-bold fs-6 text-dark"><?= number_format($s3) ?></td>
+                                    <td class="fw-bold fs-6 text-success bg-light"><?= number_format($daily) ?></td>
                                 </tr>
                             <?php endforeach; ?>
 
                             <?php if (!$hasData): ?>
                                 <tr>
-                                    <td colspan="7" class="text-muted py-4">Belum ada transaksi produksi Painting untuk hari ini.</td>
+                                    <td colspan="7" class="text-muted py-4">Belum ada transaksi produksi untuk hari ini.</td>
                                 </tr>
                             <?php endif; ?>
                         </tbody>
                         <?php if ($hasData): ?>
-                            <tfoot class="table-secondary fw-bold fs-5">
+                            <tfoot class="table-secondary fw-bold fs-6">
                                 <tr>
                                     <td colspan="3" class="text-end py-2">TOTAL OUTPUT:</td>
                                     <td class="text-primary"><?= number_format($grand_s1) ?></td>
                                     <td class="text-primary"><?= number_format($grand_s2) ?></td>
                                     <td class="text-primary"><?= number_format($grand_s3) ?></td>
-                                    <td class="text-success fs-4 bg-warning bg-opacity-25"><?= number_format($grand_daily) ?></td>
+                                    <td class="text-success fs-6 bg-warning bg-opacity-25"><?= number_format($grand_daily) ?></td>
                                 </tr>
                             </tfoot>
                         <?php endif; ?>

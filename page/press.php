@@ -267,7 +267,7 @@ $histories = $stmtHistory->fetchAll();
 
 <div class="container-fluid py-3 px-4">
     <!-- Laporan Foto Leader -->
-    <div class="d-flex justify-content-between align-items-center mb-3 ms-auto">
+    <div class="d-flex justify-content-end align-items-center mb-3 ms-auto">
         <button type="button" class="btn btn-sm btn-success fw-bold px-2 py-1" style="font-size: 0.75rem;" data-bs-toggle="modal" data-bs-target="#reportPhotoModal">
             Laporan Output Produksi
         </button>
@@ -296,8 +296,8 @@ $histories = $stmtHistory->fetchAll();
         <div class="col-lg-5 col-md-12">
             <div class="card shadow-sm border-0">
                 <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center py-2">
-                    <span class="fw-bold" style="font-size: 0.9rem;">Input Finish Good</span>
-                    <button type="button" class="btn btn-sm btn-outline-light px-2 m-0 fw-bold" style="font-size: 0.5rem;" data-bs-toggle="modal" data-bs-target="#backdateModal">
+                    <span class="fw-bold" style="font-size: 0.9rem;">Output Produksi Press</span>
+                    <button type="button" class="btn btn-sm btn-warning px-2 m-0 fw-bold" style="font-size: 0.5rem;" data-bs-toggle="modal" data-bs-target="#backdateModal">
                         Input Susulan
                     </button>
                 </div>
@@ -307,23 +307,26 @@ $histories = $stmtHistory->fetchAll();
                         <input type="hidden" name="production_date" value="<?= getProductionDateOnly($now) ?>">
                         <input type="hidden" name="shift" value="<?= $currentShift ?>">
 
-                        <?php foreach ($default_parts as $index => $part):
-                            $code = $part['code'];
-                        ?>
-                            <div class="border rounded p-2 mb-2 bg-light">
-                                <div class="row g-2 align-items-center">
-                                    <div class="col-7">
-                                        <input type="hidden" name="parts[<?= $index ?>][part_code]" value="<?= $part['code'] ?>">
-                                        <input type="hidden" name="parts[<?= $index ?>][part_name]" value="<?= $part['name'] ?>">
-                                        <div class="fw-bold text-dark" style="font-size: 0.85rem;"><?= $part['code'] ?></div>
-                                        <small class="text-muted d-block" style="font-size: 0.75rem;"><?= $part['name'] ?></small>
-                                    </div>
-                                    <div class="col-5">
-                                        <input type="number" name="parts[<?= $index ?>][qty]" class="form-control form-control-sm text-center fw-bold" min="0" value="0" placeholder="Qty">
+                        <!-- Container Scrollable -->
+                        <div class="pe-1" style="max-height: 253px; overflow-y: auto;">
+                            <?php foreach ($default_parts as $index => $part):
+                                $code = $part['code'];
+                            ?>
+                                <div class="border rounded p-2 mb-2 bg-light">
+                                    <div class="row g-2 align-items-center">
+                                        <div class="col-7">
+                                            <input type="hidden" name="parts[<?= $index ?>][part_code]" value="<?= $part['code'] ?>">
+                                            <input type="hidden" name="parts[<?= $index ?>][part_name]" value="<?= $part['name'] ?>">
+                                            <div class="fw-bold text-dark" style="font-size: 0.85rem;"><?= $part['code'] ?></div>
+                                            <small class="text-muted d-block" style="font-size: 0.75rem;"><?= $part['name'] ?></small>
+                                        </div>
+                                        <div class="col-5">
+                                            <input type="number" name="parts[<?= $index ?>][qty]" class="form-control form-control-sm text-center fw-bold" min="0" value="0" placeholder="Qty">
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        <?php endforeach; ?>
+                            <?php endforeach; ?>
+                        </div>
 
                         <div class="d-grid mt-3">
                             <button type="submit" class="btn btn-primary btn-sm fw-bold py-2">
@@ -339,7 +342,7 @@ $histories = $stmtHistory->fetchAll();
         <div class="col-lg-7 col-md-12">
             <div class="card shadow-sm border-0">
                 <div class="card-header bg-dark text-white fw-bold py-2 d-flex justify-content-between align-items-center" style="font-size: 0.9rem;">
-                    <span>History Transaksi</span>
+                    <span>Riwayat Transaksi Press</span>
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive" style="max-height: 340px; overflow-y: auto;">
@@ -465,7 +468,7 @@ $histories = $stmtHistory->fetchAll();
             <div class="card shadow-sm border-0 h-100">
                 <div class="card-header bg-dark text-white py-2 border-bottom-0 d-flex justify-content-between align-items-center">
                     <span class="fw-bold" style="font-size: 0.9rem;">
-                        <i class="bi bi-box-seam me-1"></i> Live Stok
+                        Live Stok Press
                     </span>
                 </div>
                 <div class="card-body p-2">
@@ -506,7 +509,7 @@ $histories = $stmtHistory->fetchAll();
             <div class="card shadow-sm border-0 border-start h-100">
                 <div class="card-header bg-dark text-white py-2 border-bottom-0 d-flex justify-content-between align-items-center">
                     <span class="fw-bold" style="font-size: 0.9rem;">
-                        Total Transaksi
+                        Total Transaksi Press
                     </span>
                 </div>
                 <div class="card-body p-2">
@@ -623,7 +626,7 @@ $histories = $stmtHistory->fetchAll();
                 <!-- HEADER INFORMASI PABRIK -->
                 <div class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-3">
                     <div>
-                        <h4 class="fw-bold text-dark mb-0">LAPORAN HARIAN OUTPUT PRESS</h4>
+                        <h4 class="fw-bold text-dark mb-0">LAPORAN OUTPUT PRESS</h4>
                     </div>
                     <div class="text-end">
                         <div class="fw-bold text-secondary">TANGGAL: <?= date('d/m/Y', strtotime($todayFilter)) ?></div>
@@ -651,6 +654,7 @@ $histories = $stmtHistory->fetchAll();
                             $grand_s2 = 0;
                             $grand_s3 = 0;
                             $grand_daily = 0;
+                            $hasData = false;
 
                             foreach ($default_parts as $p):
                                 $c     = $p['code'];
@@ -660,6 +664,12 @@ $histories = $stmtHistory->fetchAll();
                                 $s3    = (int)($trx['shift3'] ?? 0);
                                 $daily = (int)($trx['daily'] ?? 0);
 
+                                // FILTER: Skip part jika tidak ada transaksi (Total Daily = 0)
+                                if ($daily === 0) {
+                                    continue;
+                                }
+
+                                $hasData      = true;
                                 $grand_s1    += $s1;
                                 $grand_s2    += $s2;
                                 $grand_s3    += $s3;
@@ -675,17 +685,25 @@ $histories = $stmtHistory->fetchAll();
                                     <td class="fw-bold fs-4 text-success bg-light"><?= number_format($daily) ?></td>
                                 </tr>
                             <?php endforeach; ?>
+
+                            <?php if (!$hasData): ?>
+                                <tr>
+                                    <td colspan="7" class="text-muted py-4">Belum ada transaksi produksi Press untuk hari ini.</td>
+                                </tr>
+                            <?php endif; ?>
                         </tbody>
                         <!-- FOOTER TOTAL SELURUH PART -->
-                        <tfoot class="table-secondary fw-bold fs-5">
-                            <tr>
-                                <td colspan="3" class="text-end py-2">TOTAL OUTPUT:</td>
-                                <td class="text-primary"><?= number_format($grand_s1) ?></td>
-                                <td class="text-primary"><?= number_format($grand_s2) ?></td>
-                                <td class="text-primary"><?= number_format($grand_s3) ?></td>
-                                <td class="text-success fs-4 bg-warning bg-opacity-25"><?= number_format($grand_daily) ?></td>
-                            </tr>
-                        </tfoot>
+                        <?php if ($hasData): ?>
+                            <tfoot class="table-secondary fw-bold fs-5">
+                                <tr>
+                                    <td colspan="3" class="text-end py-2">TOTAL OUTPUT:</td>
+                                    <td class="text-primary"><?= number_format($grand_s1) ?></td>
+                                    <td class="text-primary"><?= number_format($grand_s2) ?></td>
+                                    <td class="text-primary"><?= number_format($grand_s3) ?></td>
+                                    <td class="text-success fs-4 bg-warning bg-opacity-25"><?= number_format($grand_daily) ?></td>
+                                </tr>
+                            </tfoot>
+                        <?php endif; ?>
                     </table>
                 </div>
             </div>
