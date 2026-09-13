@@ -2,6 +2,12 @@
 session_start();
 date_default_timezone_set('Asia/Jakarta');
 
+// --- CEK APAKAH USER SUDAH LOGIN ---
+if (!isset($_SESSION['username'])) {
+    header('Location: login.php');
+    exit;
+}
+
 // --- LOGIKA TANGGAL PRODUKSI & SHIFT ---
 function getProductionDateOnly($datetime)
 {

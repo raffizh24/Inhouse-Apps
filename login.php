@@ -63,7 +63,7 @@ if (isset($_POST['login'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - System Planning</title>
+    <title>Login - Inhouse Apps</title>
     <link rel="stylesheet" href="css/bootstrap.min.css">
 </head>
 
@@ -73,7 +73,7 @@ if (isset($_POST['login'])) {
             <div class="col-md-4">
                 <div class="card shadow-sm border-0">
                     <div class="card-header bg-primary text-white text-center py-3">
-                        <h5 class="mb-0 fw-bold">System Planning Login</h5>
+                        <h5 class="mb-0 fw-bold">Inhouse Apps Login</h5>
                     </div>
                     <div class="card-body p-4">
                         <?php if ($error): ?>
