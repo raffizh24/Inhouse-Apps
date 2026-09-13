@@ -75,12 +75,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     continue;
                 }
 
+                // Tentukan nilai minus qty_press (khusus PEVA-A055VDKZ diset 0)
+                $qty_minus = ($part_code === 'PEVA-A055VDKZ') ? 0 : -$qty;
+
                 // Execute Stok
                 $stmtStok->execute([
                     ':part_code' => $part_code,
                     ':part_name' => $part_name,
                     ':qty_p'     => $qty,
-                    ':qty_minus' => -$qty
+                    ':qty_minus' => $qty_minus
                 ]);
 
                 // Execute Log Transaksi
@@ -142,14 +145,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if ($oldTrx) {
                 $selisih = $new_qty - $oldTrx['qty'];
 
+                // Jika part code PEVA-A055VDKZ, selisih press dibuat 0 agar qty_press tidak berubah
+                $selisih_press = ($oldTrx['part_code'] === 'PEVA-A055VDKZ') ? 0 : $selisih;
+
                 // Update qty_paint & qty_press
                 $stmtUpdateStok = $pdo->prepare("UPDATE stok_pp 
-                                                 SET qty_paint = qty_paint + :selisih1, 
-                                                     qty_press = qty_press - :selisih2 
-                                                 WHERE part_code = :part_code");
+                                 SET qty_paint = qty_paint + :selisih1, 
+                                     qty_press = qty_press - :selisih2 
+                                 WHERE part_code = :part_code");
                 $stmtUpdateStok->execute([
                     ':selisih1'  => $selisih,
-                    ':selisih2'  => $selisih,
+                    ':selisih2'  => $selisih_press,
                     ':part_code' => $oldTrx['part_code']
                 ]);
 
@@ -199,14 +205,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $oldTrx = $stmtOld->fetch();
 
             if ($oldTrx) {
+                // Jika PEVA-A055VDKZ, qty_press yang dikembalikan 0
+                $qty_press_back = ($oldTrx['part_code'] === 'PEVA-A055VDKZ') ? 0 : $oldTrx['qty'];
+
                 // 2. Kembalikan stok
                 $stmtSubStok = $pdo->prepare("UPDATE stok_pp 
-                                             SET qty_paint = qty_paint - :qty1, 
-                                                 qty_press = qty_press + :qty2 
-                                             WHERE part_code = :part_code");
+                             SET qty_paint = qty_paint - :qty1, 
+                                 qty_press = qty_press + :qty2 
+                             WHERE part_code = :part_code");
                 $stmtSubStok->execute([
                     ':qty1'      => $oldTrx['qty'],
-                    ':qty2'      => $oldTrx['qty'],
+                    ':qty2'      => $qty_press_back,
                     ':part_code' => $oldTrx['part_code']
                 ]);
 
