@@ -93,9 +93,12 @@ try {
         </div>
 
         <div class="d-flex gap-2 align-items-center">
+            <a href="index.php?page=activity_logs" class="btn btn-sm btn-outline-dark">
+                Activity Log
+            </a>
             <!-- Tombol Ke Halaman Master Stok Baru -->
-            <a href="index.php?page=stok_balance&area=<?= htmlspecialchars($activeArea) ?>" class="btn btn-sm btn-success px-3 py-1 shadow-sm">
-                <i class="bi bi-box-seam me-1"></i> Lihat Stok Balance Live
+            <a href="index.php?page=stok_balance&area=<?= htmlspecialchars($activeArea) ?>" class="btn btn-sm btn-outline-dark px-3 py-1 shadow-sm">
+                Lihat Stok Balance Live
             </a>
 
             <!-- Filter Tanggal -->
