@@ -1,5 +1,5 @@
 <?php
-// cmc.php - Central Monitoring Control Dashboard (Light Theme)
+// cmc.php - Central Monitoring Control Dashboard
 
 require_once __DIR__ . '/../config.php';
 
@@ -13,11 +13,10 @@ if (!isset($pdo) || !($pdo instanceof PDO)) {
     die("Koneksi database gagal dimuat. Periksa kembali file config.php Anda.");
 }
 
-// Area & Filter Tanggal Aktif
 $activeArea = $_GET['area'] ?? 'INJECTION';
 $historyDateFilter = $_GET['history_date'] ?? '';
 
-// Tentukan tabel master dan filter kondisi area yang lebih presisi
+// Mapping Tabel Master & Area Condition
 $masterTable = 'stok_injection';
 $areaCondition = "UPPER(t.role) = 'INJECTION'";
 
@@ -38,17 +37,16 @@ if ($activeArea === 'PRESS') {
     $areaCondition = "(UPPER(t.role) LIKE '%PIPE%' OR UPPER(t.role) LIKE '%PIPING%' OR t.source_table = 'stok_piping' OR UPPER(t.part_code) LIKE 'CPIP%')";
 }
 
-// Daftar tab area lengkap
 $allTabs = [
-    'PRESS'     => ['title' => 'Press', 'table' => 'stok_pp'],
-    'PAINTING'  => ['title' => 'Painting', 'table' => 'stok_pp'],
-    'INJECTION' => ['title' => 'Injection', 'table' => 'stok_injection'],
-    'HE'        => ['title' => 'HE', 'table' => 'stok_he'],
-    'PIPING'    => ['title' => 'Piping', 'table' => 'stok_piping'],
+    'PRESS'     => ['title' => 'Press'],
+    'PAINTING'  => ['title' => 'Painting'],
+    'INJECTION' => ['title' => 'Injection'],
+    'HE'        => ['title' => 'HE'],
+    'PIPING'    => ['title' => 'Piping'],
 ];
 
 try {
-    // Fungsi helper untuk mengambil data history berdasarkan tipe (IN / OUT)
+    // Fetch Transaction History Data (IN & OUT)
     $fetchHistoryData = function ($type) use ($pdo, $masterTable, $areaCondition, $historyDateFilter) {
         $typeCondition = ($type === 'OUT') ? "(t.transaction_type = 'OUT' OR t.qty < 0)" : "(t.transaction_type = 'IN' OR t.qty >= 0)";
 
@@ -76,7 +74,6 @@ try {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     };
 
-    // Ambil data untuk Kiri (IN) dan Kanan (OUT) secara paralel
     $rowsIn = $fetchHistoryData('IN');
     $rowsOut = $fetchHistoryData('OUT');
 } catch (Exception $e) {
@@ -88,28 +85,38 @@ try {
 
 <div class="container-fluid py-3 px-3 text-dark" style="font-size: 0.85rem;">
 
-    <!-- Top Header Title & Filter Tanggal Global -->
+    <!-- Top Header & Filter -->
     <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
-        <h5 class="fw-bold text-secondary mb-0">Detail Rekapitulasi History Produksi & Pengambilan</h5>
+        <div>
+            <h5 class="fw-bold text-secondary mb-0">Central Monitoring Control (CMC)</h5>
+            <small class="text-muted">Rekap Transaksi Area: <strong><?= htmlspecialchars($activeArea) ?></strong></small>
+        </div>
 
-        <!-- Filter Tanggal Global untuk Kedua Tabel -->
-        <form method="GET" action="index.php" class="d-flex gap-2 align-items-center">
-            <input type="hidden" name="page" value="cmc">
-            <input type="hidden" name="area" value="<?= htmlspecialchars($activeArea) ?>">
-            <input type="date" name="history_date" class="form-control form-control-sm bg-white border" value="<?= htmlspecialchars($historyDateFilter) ?>">
-            <button type="submit" class="btn btn-sm btn-primary px-3 py-1 shadow-sm">Filter</button>
-            <?php if (!empty($historyDateFilter)): ?>
-                <a href="index.php?page=cmc&area=<?= htmlspecialchars($activeArea) ?>" class="btn btn-sm btn-outline-secondary px-2 py-1">Reset</a>
-            <?php endif; ?>
-        </form>
+        <div class="d-flex gap-2 align-items-center">
+            <!-- Tombol Ke Halaman Master Stok Baru -->
+            <a href="index.php?page=stok_balance&area=<?= htmlspecialchars($activeArea) ?>" class="btn btn-sm btn-success px-3 py-1 shadow-sm">
+                <i class="bi bi-box-seam me-1"></i> Lihat Stok Balance Live
+            </a>
+
+            <!-- Filter Tanggal -->
+            <form method="GET" action="index.php" class="d-flex gap-2 align-items-center">
+                <input type="hidden" name="page" value="cmc">
+                <input type="hidden" name="area" value="<?= htmlspecialchars($activeArea) ?>">
+                <input type="date" name="history_date" class="form-control form-control-sm bg-white border" value="<?= htmlspecialchars($historyDateFilter) ?>">
+                <button type="submit" class="btn btn-sm btn-primary px-3 py-1 shadow-sm">Filter Tanggal</button>
+                <?php if (!empty($historyDateFilter)): ?>
+                    <a href="index.php?page=cmc&area=<?= htmlspecialchars($activeArea) ?>" class="btn btn-sm btn-outline-secondary px-2 py-1">Reset</a>
+                <?php endif; ?>
+            </form>
+        </div>
     </div>
 
     <?php if (isset($errorMsg)): ?>
-        <div class="alert alert-danger py-1"><?= htmlspecialchars($errorMsg) ?></div>
+        <div class="alert alert-danger py-2 mb-3"><?= htmlspecialchars($errorMsg) ?></div>
     <?php endif; ?>
 
     <!-- Navigasi Tab Area -->
-    <div class="d-flex flex-wrap gap-2 mb-3 border-bottom pb-2 align-items-center">
+    <div class="d-flex flex-wrap gap-2 mb-3 border-bottom pb-2">
         <ul class="nav nav-pills gap-1 mb-0">
             <?php foreach ($allTabs as $keyArea => $info): ?>
                 <li class="nav-item">
@@ -122,10 +129,9 @@ try {
         </ul>
     </div>
 
-    <!-- Layout 2 Kolom (Kiri: Output Produksi | Kanan: Pengambilan Part) -->
+    <!-- History IN & OUT Tables -->
     <div class="row g-3">
-
-        <!-- KOLOM KIRI: Output Produksi (IN) -->
+        <!-- Kolom IN -->
         <div class="col-xl-6 col-lg-6 col-md-12">
             <div class="card bg-white border shadow-sm h-100">
                 <div class="card-header bg-success bg-opacity-10 d-flex justify-content-between align-items-center py-2 border-bottom">
@@ -135,7 +141,7 @@ try {
                     <span class="badge bg-success">IN</span>
                 </div>
                 <div class="card-body p-0">
-                    <div class="table-responsive" style="max-height: 660px; overflow-y: auto;">
+                    <div class="table-responsive" style="max-height: 550px; overflow-y: auto;">
                         <table class="table table-light table-striped table-bordered table-sm align-middle mb-0 text-center" style="font-size: 0.78rem;">
                             <thead class="table-secondary text-dark sticky-top">
                                 <tr>
@@ -167,18 +173,14 @@ try {
                                     ?>
                                         <tr>
                                             <?php if ($isFirst): ?>
-                                                <td class="fw-semibold align-middle bg-white" rowspan="<?= $dateCountsIn[$date] ?>">
-                                                    <?= htmlspecialchars($date) ?>
-                                                </td>
+                                                <td class="fw-semibold align-middle bg-white" rowspan="<?= $dateCountsIn[$date] ?>"><?= htmlspecialchars($date) ?></td>
                                             <?php endif; ?>
                                             <td class="text-primary fw-bold"><?= htmlspecialchars($row['part_code']) ?></td>
                                             <td class="text-start ps-2"><?= htmlspecialchars($row['part_name'] ?? '-') ?></td>
                                             <td><?= number_format($row['s1']) ?></td>
                                             <td><?= number_format($row['s2']) ?></td>
                                             <td><?= number_format($row['s3']) ?></td>
-                                            <td class="fw-bold bg-success bg-opacity-10 text-success">
-                                                <?= number_format($row['total']) ?>
-                                            </td>
+                                            <td class="fw-bold bg-success bg-opacity-10 text-success"><?= number_format($row['total']) ?></td>
                                         </tr>
                                     <?php endforeach; ?>
                                 <?php endif; ?>
@@ -189,7 +191,7 @@ try {
             </div>
         </div>
 
-        <!-- KOLOM KANAN: Pengambilan Part (OUT) -->
+        <!-- Kolom OUT -->
         <div class="col-xl-6 col-lg-6 col-md-12">
             <div class="card bg-white border shadow-sm h-100">
                 <div class="card-header bg-danger bg-opacity-10 d-flex justify-content-between align-items-center py-2 border-bottom">
@@ -199,7 +201,7 @@ try {
                     <span class="badge bg-danger">OUT</span>
                 </div>
                 <div class="card-body p-0">
-                    <div class="table-responsive" style="max-height: 660px; overflow-y: auto;">
+                    <div class="table-responsive" style="max-height: 550px; overflow-y: auto;">
                         <table class="table table-light table-striped table-bordered table-sm align-middle mb-0 text-center" style="font-size: 0.78rem;">
                             <thead class="table-secondary text-dark sticky-top">
                                 <tr>
@@ -231,18 +233,14 @@ try {
                                     ?>
                                         <tr>
                                             <?php if ($isFirst): ?>
-                                                <td class="fw-semibold align-middle bg-white" rowspan="<?= $dateCountsOut[$date] ?>">
-                                                    <?= htmlspecialchars($date) ?>
-                                                </td>
+                                                <td class="fw-semibold align-middle bg-white" rowspan="<?= $dateCountsOut[$date] ?>"><?= htmlspecialchars($date) ?></td>
                                             <?php endif; ?>
                                             <td class="text-primary fw-bold"><?= htmlspecialchars($row['part_code']) ?></td>
                                             <td class="text-start ps-2"><?= htmlspecialchars($row['part_name'] ?? '-') ?></td>
                                             <td><?= number_format($row['s1']) ?></td>
                                             <td><?= number_format($row['s2']) ?></td>
                                             <td><?= number_format($row['s3']) ?></td>
-                                            <td class="fw-bold bg-danger bg-opacity-10 text-danger">
-                                                <?= number_format($row['total']) ?>
-                                            </td>
+                                            <td class="fw-bold bg-danger bg-opacity-10 text-danger"><?= number_format($row['total']) ?></td>
                                         </tr>
                                     <?php endforeach; ?>
                                 <?php endif; ?>
@@ -252,7 +250,6 @@ try {
                 </div>
             </div>
         </div>
-
     </div>
 
 </div>
