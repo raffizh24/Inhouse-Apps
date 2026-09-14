@@ -402,7 +402,7 @@ $histories   = $stmtHistory->fetchAll();
                     <span>Riwayat Transaksi</span>
                 </div>
                 <div class="card-body p-0">
-                    <div class="table-responsive" style="max-height: 220px; overflow-y: auto;">
+                    <div class="table-responsive" style="max-height: 307px; overflow-y: auto;">
                         <table class="table table-hover align-middle text-center mb-0" style="font-size: 0.8rem;">
                             <thead class="table-light sticky-top">
                                 <tr>
