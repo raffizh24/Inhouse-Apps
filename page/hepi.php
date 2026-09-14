@@ -313,7 +313,7 @@ $stmtHistory->execute([':source_table' => $targetTable]);
 $histories   = $stmtHistory->fetchAll();
 ?>
 
-<div class="container-fluid py-3 px-4">
+<div class="container-fluid py-1 px-4">
     <!-- Header Page & Tab Area Filter -->
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div class="btn-group" role="group">
