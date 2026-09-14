@@ -283,6 +283,7 @@ $sqlSummaryPerPart = "SELECT
     SUM(CASE WHEN production_date = ? AND shift = 3 THEN qty ELSE 0 END) AS shift3
 FROM stock_transactions 
 WHERE source_table = ?
+AND transaction_type = 'IN'
 GROUP BY part_code";
 
 $stmtTrxPart = $pdo->prepare($sqlSummaryPerPart);
