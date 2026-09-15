@@ -18,13 +18,37 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'] ?? '', $allowed_
 
 $current_role  = $_SESSION['role'] ?? 'PAINTING';
 
-// List Part Preset
+// --- LOGIKA TANGGAL PRODUKSI & SHIFT ---
+function getProductionDateOnly($datetime)
+{
+    $time = date('H:i', strtotime($datetime));
+    $date = date('Y-m-d', strtotime($datetime));
+
+    if ($time < '09:00') {
+        return date('Y-m-d', strtotime($date . ' -1 day'));
+    }
+    return $date;
+}
+
+function getShift($time)
+{
+    if ($time >= '09:00' && $time < '18:00') return 1;
+    if ($time >= '18:00' || $time < '01:30') return 2;
+    return 3;
+}
+
+$now                    = date('Y-m-d H:i:s');
+$currentDate            = getProductionDateOnly($now);
+$currentShift           = getShift(date('H:i', strtotime($now)));
+$productionDateDisplay  = date('d/m/Y', strtotime($currentDate));
+
+// List Part Preset (Sudah diperbarui sesuai permintaan)
 $default_parts = [
     ['code' => 'PEVA-A055VDKZ', 'name' => 'EVAP REF 162'],
-    ['code' => 'GCAB-A646JBPZ', 'name' => 'Top Table'],
-    ['code' => 'GCAB-A767JBPZ', 'name' => 'Front Panel'],
-    ['code' => 'LCHS-A800JBPZ', 'name' => 'Base Pan'],
-    ['code' => 'PPLT-B282JBPZ', 'name' => 'Side Cover R']
+    ['code' => 'GCAB-A646JBTA', 'name' => 'Top Table'],
+    ['code' => 'GCAB-A767JBTA', 'name' => 'Front Panel'],
+    ['code' => 'CCHS-B829JBTA', 'name' => 'Base Pan'],
+    ['code' => 'PPLT-B282JBTA', 'name' => 'Side Cover R']
 ];
 
 // Helper untuk redirect agar terarah ke page=paint
@@ -35,12 +59,10 @@ $redirectPage = (strtolower($current_role) === 'painting') ? 'paint' : strtolowe
 // =========================================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
-    $now = date('Y-m-d H:i:s');
-
     // --- A. BATCH INPUT PAINTING ---
     if ($_POST['action'] === 'save_batch_paint') {
         $parts          = $_POST['parts'] ?? [];
-        $selectedDate   = $_POST['production_date'] ?? date('Y-m-d');
+        $selectedDate   = $_POST['production_date'] ?? $currentDate;
         $selectedShift  = (int)($_POST['shift'] ?? 1);
         $inserted_count = 0;
 
@@ -132,7 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'edit_transaction') {
         $id_trx    = (int)$_POST['id_transaction'];
         $new_qty   = (int)$_POST['new_qty'];
-        $new_date  = $_POST['production_date'] ?? date('Y-m-d');
+        $new_date  = $_POST['production_date'] ?? $currentDate;
         $new_shift = (int)($_POST['shift'] ?? 1);
 
         try {
@@ -263,8 +285,8 @@ while ($row = $stmtPartStok->fetch(PDO::FETCH_ASSOC)) {
     ];
 }
 
-// B. Query Summary Transaksi Per Part Code
-$todayFilter = date('Y-m-d');
+// B. Query Summary Transaksi Per Part Code (Gunakan $currentDate agar selaras dengan jam 9 pagi)
+$todayFilter = $currentDate;
 $partTrxMap = [];
 $sqlSummaryPerPart = "SELECT 
     part_code,
@@ -344,7 +366,7 @@ $histories = $stmtHistory->fetchAll();
                 <div class="card-body p-3">
                     <form method="POST">
                         <input type="hidden" name="action" value="save_batch_paint">
-                        <input type="hidden" name="production_date" value="<?= getProductionDateOnly($now) ?>">
+                        <input type="hidden" name="production_date" value="<?= $currentDate ?>">
                         <input type="hidden" name="shift" value="<?= $currentShift ?>">
 
                         <!-- Container Scrollable dengan max-height -->
@@ -605,7 +627,7 @@ $histories = $stmtHistory->fetchAll();
                     <div class="row g-2 mb-3">
                         <div class="col-6">
                             <label class="form-label small fw-bold">Tanggal Produksi</label>
-                            <input type="date" name="production_date" class="form-control form-control-sm" value="<?= date('Y-m-d') ?>" required>
+                            <input type="date" name="production_date" class="form-control form-control-sm" value="<?= $currentDate ?>" required>
                         </div>
                         <div class="col-6">
                             <label class="form-label small fw-bold">Shift</label>
@@ -653,7 +675,7 @@ $histories = $stmtHistory->fetchAll();
                     <h5 class="modal-title fw-bold mb-0">
                         LAPORAN OUTPUT PRODUKSI - <?= strtoupper($current_role) ?>
                     </h5>
-                    <small class="text-white-50">Tanggal Produksi: <b><?= date('d/m/Y', strtotime($todayFilter)) ?></b> | Update: <b><?= date('H:i') ?> WIB</b></small>
+                    <small class="text-white-50">Tanggal Produksi: <b><?= $productionDateDisplay ?></b> | Update: <b><?= date('H:i') ?> WIB</b></small>
                 </div>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
@@ -663,7 +685,7 @@ $histories = $stmtHistory->fetchAll();
                         <h4 class="fw-bold text-dark mb-0">LAPORAN OUTPUT PAINTING</h4>
                     </div>
                     <div class="text-end">
-                        <div class="fw-bold text-secondary">TANGGAL: <?= date('d/m/Y', strtotime($todayFilter)) ?></div>
+                        <div class="fw-bold text-secondary">TANGGAL: <?= $productionDateDisplay ?></div>
                         <small class="text-muted d-block">Shift Aktif: <b>Shift <?= $currentShift ?></b></small>
                     </div>
                 </div>

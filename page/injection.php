@@ -69,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     // --- A. BATCH INPUT INJECTION ---
     if ($_POST['action'] === 'save_batch_injection') {
         $parts          = $_POST['parts'] ?? [];
-        $selectedDate   = $_POST['production_date'] ?? date('Y-m-d');
+        $selectedDate = $_POST['production_date'] ?? $currentDate;
         $selectedShift  = (int)($_POST['shift'] ?? 1);
         $area           = $_POST['area'] ?? $selectedArea;
         $inserted_count = 0;
@@ -153,7 +153,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'edit_transaction') {
         $id_trx    = (int)$_POST['id_transaction'];
         $new_qty   = (int)$_POST['new_qty'];
-        $new_date  = $_POST['production_date'] ?? date('Y-m-d');
+        $new_date = $_POST['production_date'] ?? $currentDate;
         $new_shift = (int)($_POST['shift'] ?? 1);
 
         try {
@@ -256,7 +256,7 @@ while ($row = $stmtPartStok->fetch(PDO::FETCH_ASSOC)) {
 }
 
 // B. Query Summary Transaksi Per Part Code
-$todayFilter = date('Y-m-d');
+$todayFilter = $currentDate;
 $partTrxMap = [];
 $sqlSummaryPerPart = "SELECT 
     part_code,
@@ -267,7 +267,8 @@ $sqlSummaryPerPart = "SELECT
     SUM(CASE WHEN production_date = ? AND shift = 2 THEN qty ELSE 0 END) AS shift2,
     SUM(CASE WHEN production_date = ? AND shift = 3 THEN qty ELSE 0 END) AS shift3
 FROM stock_transactions 
-WHERE source_table = 'stok_injection'
+WHERE source_table = 'stok_injection' 
+  AND transaction_type = 'IN'  -- Tambahkan baris ini
 GROUP BY part_code";
 
 $stmtTrxPart = $pdo->prepare($sqlSummaryPerPart);
@@ -344,7 +345,7 @@ $histories = $stmtHistory->fetchAll();
                     <form method="POST" action="index.php?page=injection&area=<?= $selectedArea ?>">
                         <input type="hidden" name="action" value="save_batch_injection">
                         <input type="hidden" name="area" value="<?= $selectedArea ?>">
-                        <input type="hidden" name="production_date" value="<?= date('Y-m-d') ?>">
+                        <input type="hidden" name="production_date" value="<?= $currentDate ?>">
                         <input type="hidden" name="shift" value="<?= $currentShift ?>">
 
                         <div class="style-container" style="max-height: 230px; overflow-y: auto;">
@@ -604,7 +605,7 @@ $histories = $stmtHistory->fetchAll();
                     <div class="row g-2 mb-3">
                         <div class="col-6">
                             <label class="form-label small fw-bold">Tanggal Produksi</label>
-                            <input type="date" name="production_date" class="form-control form-control-sm" value="<?= date('Y-m-d') ?>" required>
+                            <input type="date" name="production_date" class="form-control form-control-sm" value="<?= $currentDate ?>" required>
                         </div>
                         <div class="col-6">
                             <label class="form-label small fw-bold">Shift</label>

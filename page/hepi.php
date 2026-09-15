@@ -26,8 +26,19 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'] ?? '', $allowed_
 }
 
 $current_role = $_SESSION['role'] ?? 'HEPI';
-$now          = date('Y-m-d H:i:s');
-$currentShift = $currentShift ?? 1;
+$now = date('Y-m-d H:i:s');
+
+$currentDate = $currentDate ?? (
+    function_exists('getProductionDateOnly')
+    ? getProductionDateOnly($now)
+    : date('Y-m-d')
+);
+
+$currentShift = $currentShift ?? (
+    function_exists('getShift')
+    ? getShift(date('H:i', strtotime($now)))
+    : 1
+);
 
 // 1. Data Master Part
 $parts_he = [
@@ -77,7 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     // --- A. BATCH INPUT HE / PIPING ---
     if ($_POST['action'] === 'save_batch_hepi') {
         $parts          = $_POST['parts'] ?? [];
-        $selectedDate   = $_POST['production_date'] ?? date('Y-m-d');
+        $selectedDate   = $_POST['production_date'] ?? $currentDate;
         $selectedShift  = (int)($_POST['shift'] ?? 1);
         $area           = $_POST['area'] ?? $selectedArea;
         $inserted_count = 0;
@@ -163,7 +174,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'edit_transaction') {
         $id_trx    = (int)$_POST['id_transaction'];
         $new_qty   = (int)$_POST['new_qty'];
-        $new_date  = $_POST['production_date'] ?? date('Y-m-d');
+        $new_date  = $_POST['production_date'] ?? $currentDate;
         $new_shift = (int)($_POST['shift'] ?? 1);
 
         try {
@@ -271,7 +282,7 @@ while ($row = $stmtPartStok->fetch(PDO::FETCH_ASSOC)) {
 }
 
 // B. Query Summary Transaksi Per Part Code dari `stock_transactions`
-$todayFilter = date('Y-m-d');
+$todayFilter = $currentDate;
 $partTrxMap  = [];
 $sqlSummaryPerPart = "SELECT 
     part_code,
@@ -362,7 +373,7 @@ $histories   = $stmtHistory->fetchAll();
                     <form method="POST" action="index.php?page=hepi&area=<?= $selectedArea ?>">
                         <input type="hidden" name="action" value="save_batch_hepi">
                         <input type="hidden" name="area" value="<?= $selectedArea ?>">
-                        <input type="hidden" name="production_date" value="<?= date('Y-m-d') ?>">
+                        <input type="hidden" name="production_date" value="<?= $currentDate ?>">
                         <input type="hidden" name="shift" value="<?= $currentShift ?>">
 
                         <div class="style-container" style="max-height: 220px; overflow-y: auto;">
@@ -458,7 +469,7 @@ $histories   = $stmtHistory->fetchAll();
                                                             </div>
                                                             <div class="mb-2">
                                                                 <label class="form-label small fw-bold">Tgl Produksi</label>
-                                                                <input type="date" name="production_date" class="form-control form-control-sm" value="<?= $tr['production_date'] ?>" required>
+                                                                <input type="date" name="production_date" class="form-control form-control-sm" value="<?= $currentDate ?>" required>
                                                             </div>
                                                             <div class="mb-2">
                                                                 <label class="form-label small fw-bold">Shift</label>
@@ -622,7 +633,7 @@ $histories   = $stmtHistory->fetchAll();
                     <div class="row g-2 mb-3">
                         <div class="col-6">
                             <label class="form-label small fw-bold">Tanggal Produksi</label>
-                            <input type="date" name="production_date" class="form-control form-control-sm" value="<?= date('Y-m-d') ?>" required>
+                            <input type="date" name="production_date" class="form-control form-control-sm" value="<?= $currentDate ?>" required>
                         </div>
                         <div class="col-6">
                             <label class="form-label small fw-bold">Shift</label>
