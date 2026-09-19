@@ -18,37 +18,27 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'] ?? '', $allowed_
 
 $current_role  = $_SESSION['role'] ?? 'PAINTING';
 
-// --- LOGIKA TANGGAL PRODUKSI & SHIFT ---
-function getProductionDateOnly($datetime)
-{
-    $time = date('H:i', strtotime($datetime));
-    $date = date('Y-m-d', strtotime($datetime));
+$now = date('Y-m-d H:i:s');
 
-    if ($time < '09:00') {
-        return date('Y-m-d', strtotime($date . ' -1 day'));
-    }
-    return $date;
-}
+$currentDate = $currentDate ?? (
+    function_exists('getProductionDateOnly')
+    ? getProductionDateOnly($now)
+    : date('Y-m-d')
+);
 
-function getShift($time)
-{
-    if ($time >= '09:00' && $time < '18:00') return 1;
-    if ($time >= '18:00' || $time < '01:30') return 2;
-    return 3;
-}
+$currentShift = $currentShift ?? (
+    function_exists('getShift')
+    ? getShift(date('H:i', strtotime($now)))
+    : 1
+);
 
-$now                    = date('Y-m-d H:i:s');
-$currentDate            = getProductionDateOnly($now);
-$currentShift           = getShift(date('H:i', strtotime($now)));
-$productionDateDisplay  = date('d/m/Y', strtotime($currentDate));
-
-// List Part Preset (Sudah diperbarui sesuai permintaan)
+// List Part Preset
 $default_parts = [
-    ['code' => 'PEVA-A055VDKZ', 'name' => 'EVAP REF 162'],
-    ['code' => 'GCAB-A646JBTA', 'name' => 'Top Table'],
-    ['code' => 'GCAB-A767JBTA', 'name' => 'Front Panel'],
-    ['code' => 'CCHS-B829JBTA', 'name' => 'Base Pan'],
-    ['code' => 'PPLT-B282JBTA', 'name' => 'Side Cover R']
+    ['code' => 'PEVA-A055VDKZ', 'display_code' => 'PEVA-A055VDKZ', 'name' => 'EVAP REF 162'],
+    ['code' => 'GCAB-A646JBPZ', 'display_code' => 'GCAB-A646JBTA', 'name' => 'Top Table'],
+    ['code' => 'GCAB-A767JBPZ', 'display_code' => 'GCAB-A767JBTA', 'name' => 'Front Panel'],
+    ['code' => 'LCHS-A800JBPZ', 'display_code' => 'CCHS-B829JBTA', 'name' => 'Base Pan'],
+    ['code' => 'PPLT-B282JBPZ', 'display_code' => 'PPLT-B282JBTA', 'name' => 'Side Cover R']
 ];
 
 // Helper untuk redirect agar terarah ke page=paint
@@ -58,6 +48,8 @@ $redirectPage = (strtolower($current_role) === 'painting') ? 'paint' : strtolowe
 // 1. HANDLE ACTION BATCH SAVE, EDIT, & DELETE (PAINTING)
 // =========================================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+
+    $now = date('Y-m-d H:i:s');
 
     // --- A. BATCH INPUT PAINTING ---
     if ($_POST['action'] === 'save_batch_paint') {
@@ -285,7 +277,7 @@ while ($row = $stmtPartStok->fetch(PDO::FETCH_ASSOC)) {
     ];
 }
 
-// B. Query Summary Transaksi Per Part Code (Gunakan $currentDate agar selaras dengan jam 9 pagi)
+// B. Query Summary Transaksi Per Part Code
 $todayFilter = $currentDate;
 $partTrxMap = [];
 $sqlSummaryPerPart = "SELECT 
@@ -377,7 +369,7 @@ $histories = $stmtHistory->fetchAll();
                                         <div class="col-7">
                                             <input type="hidden" name="parts[<?= $index ?>][part_code]" value="<?= $part['code'] ?>">
                                             <input type="hidden" name="parts[<?= $index ?>][part_name]" value="<?= $part['name'] ?>">
-                                            <div class="fw-bold text-dark" style="font-size: 0.85rem;"><?= $part['code'] ?></div>
+                                            <div class="fw-bold text-dark" style="font-size: 0.85rem;"><?= $part['display_code'] ?></div>
                                             <small class="text-muted d-block" style="font-size: 0.75rem;"><?= $part['name'] ?></small>
                                         </div>
                                         <div class="col-5">
@@ -549,7 +541,7 @@ $histories = $stmtHistory->fetchAll();
                                 ?>
                                     <tr>
                                         <td class="text-start fw-bold">
-                                            <?= $c ?>
+                                            <?= $p['display_code'] ?>
                                             <small class="d-block text-muted fw-normal" style="font-size:0.7rem;"><?= $p['name'] ?></small>
                                         </td>
                                         <td class="fw-bold text-primary"><?= number_format($stok_press) ?></td>
@@ -592,7 +584,7 @@ $histories = $stmtHistory->fetchAll();
                                 ?>
                                     <tr>
                                         <td class="text-start fw-bold">
-                                            <?= $c ?>
+                                            <?= $p['display_code'] ?>
                                             <small class="d-block text-muted fw-normal" style="font-size:0.7rem;"><?= $p['name'] ?></small>
                                         </td>
                                         <td><?= number_format((int)($trx['shift1'] ?? 0)) ?></td>
@@ -647,7 +639,7 @@ $histories = $stmtHistory->fetchAll();
                                 <div class="col-7">
                                     <input type="hidden" name="parts[<?= $index ?>][part_code]" value="<?= $part['code'] ?>">
                                     <input type="hidden" name="parts[<?= $index ?>][part_name]" value="<?= $part['name'] ?>">
-                                    <div class="fw-bold text-dark" style="font-size: 0.85rem;"><?= $part['code'] ?></div>
+                                    <div class="fw-bold text-dark" style="font-size: 0.85rem;"><?= $part['display_code'] ?></div>
                                     <small class="text-muted d-block" style="font-size: 0.75rem;"><?= $part['name'] ?></small>
                                 </div>
                                 <div class="col-5">
@@ -675,7 +667,7 @@ $histories = $stmtHistory->fetchAll();
                     <h5 class="modal-title fw-bold mb-0">
                         LAPORAN OUTPUT PRODUKSI - <?= strtoupper($current_role) ?>
                     </h5>
-                    <small class="text-white-50">Tanggal Produksi: <b><?= $productionDateDisplay ?></b> | Update: <b><?= date('H:i') ?> WIB</b></small>
+                    <small class="text-white-50">Tanggal Produksi: <b><?= date('d/m/Y', strtotime($todayFilter)) ?></b> | Update: <b><?= date('H:i') ?> WIB</b></small>
                 </div>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
@@ -685,7 +677,7 @@ $histories = $stmtHistory->fetchAll();
                         <h4 class="fw-bold text-dark mb-0">LAPORAN OUTPUT PAINTING</h4>
                     </div>
                     <div class="text-end">
-                        <div class="fw-bold text-secondary">TANGGAL: <?= $productionDateDisplay ?></div>
+                        <div class="fw-bold text-secondary">TANGGAL: <?= date('d/m/Y', strtotime($todayFilter)) ?></div>
                         <small class="text-muted d-block">Shift Aktif: <b>Shift <?= $currentShift ?></b></small>
                     </div>
                 </div>
@@ -732,7 +724,7 @@ $histories = $stmtHistory->fetchAll();
                             ?>
                                 <tr>
                                     <td class="fw-bold bg-light"><?= $no++ ?></td>
-                                    <td class="text-start fw-bold text-dark"><?= $c ?></td>
+                                    <td class="text-start fw-bold text-dark"><?= $p['display_code'] ?></td>
                                     <td class="text-start"><?= $p['name'] ?></td>
                                     <td class="fw-bold fs-5 text-dark"><?= number_format($s1) ?></td>
                                     <td class="fw-bold fs-5 text-dark"><?= number_format($s2) ?></td>

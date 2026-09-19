@@ -26,26 +26,32 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'] ?? '', $allowed_
 }
 
 $current_role = $_SESSION['role'] ?? 'ASSY';
-$now = date('Y-m-d H:i:s');
-
-$currentDate = $currentDate ?? (
-    function_exists('getProductionDateOnly')
-    ? getProductionDateOnly($now)
-    : date('Y-m-d')
-);
-
-$currentShift = $currentShift ?? (
-    function_exists('getShift')
-    ? getShift(date('H:i', strtotime($now)))
-    : 1
-);
+$now          = date('Y-m-d H:i:s');
+if (!function_exists('getProductionDateOnly')) {
+    function getProductionDateOnly($datetime)
+    {
+        $time = date('H:i', strtotime($datetime));
+        $date = date('Y-m-d', strtotime($datetime));
+        return ($time < '09:00') ? date('Y-m-d', strtotime($date . ' -1 day')) : $date;
+    }
+}
+if (!function_exists('getShift')) {
+    function getShift($time)
+    {
+        if ($time >= '09:00' && $time < '18:00') return 1;
+        if ($time >= '18:00' || $time < '01:30') return 2;
+        return 3;
+    }
+}
+$currentProductionDate = getProductionDateOnly($now);
+$currentShift = getShift(date('H:i', strtotime($now)));
 
 // 1. Data Master Part per Category/Table
 $parts_paint = [
-    ['code' => 'GCAB-A646JBPZ', 'name' => 'Top Table'],
-    ['code' => 'GCAB-A767JBPZ', 'name' => 'Front Panel'],
-    ['code' => 'LCHS-A800JBPZ', 'name' => 'Base Pan'],
-    ['code' => 'PPLT-B282JBPZ', 'name' => 'Side Cover R']
+    ['code' => 'GCAB-A646JBPZ', 'display_code' => 'GCAB-A646JBTA', 'name' => 'Top Table'],
+    ['code' => 'GCAB-A767JBPZ', 'display_code' => 'GCAB-A767JBTA', 'name' => 'Front Panel'],
+    ['code' => 'LCHS-A800JBPZ', 'display_code' => 'CCHS-B829JBTA', 'name' => 'Base Pan'],
+    ['code' => 'PPLT-B282JBPZ', 'display_code' => 'PPLT-B282JBTA', 'name' => 'Side Cover R']
 ];
 
 $parts_he = [
@@ -366,7 +372,7 @@ while ($row = $stmtPartStok->fetch(PDO::FETCH_ASSOC)) {
 }
 
 // B. Query Summary Transaksi Per Part Code dari `stock_transactions` (Filtering transaction_type = 'OUT')
-$todayFilter = $currentDate;
+$todayFilter = $currentProductionDate;
 $partTrxMap  = [];
 $sqlSummaryPerPart = "SELECT 
     part_code,
@@ -412,6 +418,14 @@ $partNameMap = [];
 foreach ($all_parts as $p) {
     $partNameMap[$p['code']] = $p['name'];
 }
+
+$paintDisplayMap = [
+    'GCAB-A646JBPZ' => 'GCAB-A646JBTA',
+    'GCAB-A767JBPZ' => 'GCAB-A767JBTA',
+    'LCHS-A800JBPZ' => 'CCHS-B829JBTA',
+    'PPLT-B282JBPZ' => 'PPLT-B282JBTA'
+];
+
 ?>
 
 <div class="container-fluid py-3 px-4">
@@ -492,7 +506,7 @@ foreach ($all_parts as $p) {
                     <form method="POST" action="index.php?page=assy&area=<?= $selectedArea ?>">
                         <input type="hidden" name="action" value="save_batch_assy">
                         <input type="hidden" name="area" value="<?= $selectedArea ?>">
-                        <input type="hidden" name="production_date" value="<?= $currentDate ?>">
+                        <input type="hidden" name="production_date" value="<?= htmlspecialchars($currentProductionDate) ?>">
                         <input type="hidden" name="shift" value="<?= $currentShift ?>">
 
                         <div class="style-container" style="max-height: 220px; overflow-y: auto;">
@@ -501,9 +515,9 @@ foreach ($all_parts as $p) {
                                 <div class="border rounded p-2 mb-2 bg-light">
                                     <div class="row g-2 align-items-center">
                                         <div class="col-7">
-                                            <input type="hidden" name="parts[<?= $index ?>][part_code]" value="<?= $part['code'] ?>">
+                                            <input type="hidden" name="parts[<?= $index ?>][part_code]" value="<?= htmlspecialchars($part['code']) ?>">
                                             <input type="hidden" name="parts[<?= $index ?>][part_name]" value="<?= $part['name'] ?>">
-                                            <div class="fw-bold text-dark" style="font-size: 0.82rem;"><?= $part['code'] ?></div>
+                                            <div class="fw-bold text-dark" style="font-size: 0.82rem;"><?= htmlspecialchars($part['display_code'] ?? $part['code']) ?></div>
                                             <small class="text-muted d-block" style="font-size: 0.73rem;"><?= $part['name'] ?></small>
                                         </div>
                                         <div class="col-5">
@@ -549,8 +563,11 @@ foreach ($all_parts as $p) {
                             <tbody>
                                 <?php if (count($histories) > 0): ?>
                                     <?php foreach ($histories as $tr):
-                                        // Ambil nama part berdasarkan code
+                                        // Ambil nama part berdasarkan DB code
                                         $pName = $partNameMap[$tr['part_code']] ?? '-';
+                                        $historyDisplayCode = ($selectedArea === 'PAINTING')
+                                            ? ($paintDisplayMap[$tr['part_code']] ?? $tr['part_code'])
+                                            : $tr['part_code'];
                                     ?>
                                         <tr>
                                             <td class="text-start">
@@ -560,7 +577,7 @@ foreach ($all_parts as $p) {
                                                 <?= date('d/m/Y', strtotime($tr['production_date'])) ?>
                                             </td>
                                             <td><span class="badge bg-secondary">S<?= $tr['shift'] ?? '-' ?></span></td>
-                                            <td class="text-start"><?= htmlspecialchars($tr['part_code']) ?></td>
+                                            <td class="text-start"><?= htmlspecialchars($historyDisplayCode) ?></td>
                                             <!-- Menampilkan Part Name -->
                                             <td class="text-start text-muted" style="font-size: 0.75rem;"><?= htmlspecialchars($pName) ?></td>
                                             <td class="text-danger fw-bold">-<?= number_format($tr['qty']) ?></td>
@@ -599,7 +616,7 @@ foreach ($all_parts as $p) {
                                                             <div class="row g-2">
                                                                 <div class="col-6">
                                                                     <label class="form-label small fw-bold">Tanggal Produksi</label>
-                                                                    <input type="date" name="production_date" class="form-control form-control-sm" value="<?= $currentDate ?>" required>
+                                                                    <input type="date" name="production_date" class="form-control form-control-sm" value="<?= $tr['production_date'] ?>" required>
                                                                 </div>
                                                                 <div class="col-6">
                                                                     <label class="form-label small fw-bold">Shift</label>
@@ -683,7 +700,7 @@ foreach ($all_parts as $p) {
                                 ?>
                                     <tr>
                                         <td class="text-start fw-bold">
-                                            <?= $c ?>
+                                            <?= htmlspecialchars($p['display_code'] ?? $c) ?>
                                             <small class="d-block text-muted fw-normal" style="font-size:0.7rem;"><?= $p['name'] ?></small>
                                         </td>
                                         <td class="fw-bold text-primary"><?= number_format($stok) ?></td>
@@ -725,7 +742,7 @@ foreach ($all_parts as $p) {
                                 ?>
                                     <tr>
                                         <td class="text-start fw-bold">
-                                            <?= $c ?>
+                                            <?= htmlspecialchars($p['display_code'] ?? $c) ?>
                                             <small class="d-block text-muted fw-normal" style="font-size:0.7rem;"><?= $p['name'] ?></small>
                                         </td>
                                         <td><?= number_format((int)($trx['shift1'] ?? 0)) ?></td>
@@ -781,9 +798,9 @@ foreach ($all_parts as $p) {
                             <div class="border rounded p-2 mb-2 bg-light">
                                 <div class="row g-2 align-items-center">
                                     <div class="col-7">
-                                        <input type="hidden" name="parts[<?= $index ?>][part_code]" value="<?= $part['code'] ?>">
+                                        <input type="hidden" name="parts[<?= $index ?>][part_code]" value="<?= htmlspecialchars($part['code']) ?>">
                                         <input type="hidden" name="parts[<?= $index ?>][part_name]" value="<?= $part['name'] ?>">
-                                        <div class="fw-bold text-dark" style="font-size: 0.85rem;"><?= $part['code'] ?></div>
+                                        <div class="fw-bold text-dark" style="font-size: 0.85rem;"><?= htmlspecialchars($part['display_code'] ?? $part['code']) ?></div>
                                         <small class="text-muted d-block" style="font-size: 0.75rem;"><?= $part['name'] ?></small>
                                     </div>
                                     <div class="col-5">
@@ -868,7 +885,7 @@ foreach ($all_parts as $p) {
                             ?>
                                 <tr>
                                     <td class="fw-bold bg-light"><?= $no++ ?></td>
-                                    <td class="text-start fw-bold text-dark"><?= $c ?></td>
+                                    <td class="text-start fw-bold text-dark"><?= htmlspecialchars($p['display_code'] ?? $c) ?></td>
                                     <td class="text-start"><?= $p['name'] ?></td>
                                     <td class="fw-bold fs-6 text-dark"><?= number_format($s1) ?></td>
                                     <td class="fw-bold fs-6 text-dark"><?= number_format($s2) ?></td>
