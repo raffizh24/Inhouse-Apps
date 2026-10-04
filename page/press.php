@@ -34,9 +34,10 @@ $currentShift = $currentShift ?? (
 
 // List Part Preset
 $default_parts = [
+    ['code' => 'LCHS-A800JBPZ', 'name' => 'Base Pan'],
+    ['code' => 'BASEPAN-ASSY', 'name' => 'Base Pan Assy'],
     ['code' => 'GCAB-A646JBPZ', 'name' => 'Top Table'],
     ['code' => 'GCAB-A767JBPZ', 'name' => 'Front Panel'],
-    ['code' => 'LCHS-A800JBPZ', 'name' => 'Base Pan'],
     ['code' => 'PPLT-B282JBPZ', 'name' => 'Side Cover R']
 ];
 
@@ -80,11 +81,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     continue;
                 }
 
-                $stmtStok->execute([
-                    ':part_code' => $part_code,
-                    ':part_name' => $part_name,
-                    ':qty'       => $qty
-                ]);
+                if ($part_code === 'BASEPAN-ASSY') {
+                    // Base Pan Assy: pindahkan stok dari Base Pan ke Base Pan Assy.
+                    $stmtCekBasePan = $pdo->prepare(
+                        "SELECT qty_press FROM stok_pp WHERE part_code = :code FOR UPDATE"
+                    );
+                    $stmtCekBasePan->execute([':code' => 'LCHS-A800JBPZ']);
+                    $stokBasePan = $stmtCekBasePan->fetchColumn();
+
+                    if ($stokBasePan === false || (int)$stokBasePan < $qty) {
+                        throw new Exception(
+                            "Stok Base Pan (LCHS-A800JBPZ) tidak mencukupi. Stok tersedia: " .
+                                number_format(max(0, (int)$stokBasePan)) . ", kebutuhan: " . number_format($qty) . "."
+                        );
+                    }
+
+                    $stmtKurangiBasePan = $pdo->prepare(
+                        "UPDATE stok_pp SET qty_press = qty_press - :qty WHERE part_code = :code"
+                    );
+                    $stmtKurangiBasePan->execute([
+                        ':qty'  => $qty,
+                        ':code' => 'LCHS-A800JBPZ'
+                    ]);
+
+                    // Pastikan baris stok Base Pan Assy tersedia, lalu tambahkan qty.
+                    $stmtStok->execute([
+                        ':part_code' => 'BASEPAN-ASSY',
+                        ':part_name' => 'Base Pan Assy',
+                        ':qty'       => $qty
+                    ]);
+                } else {
+                    $stmtStok->execute([
+                        ':part_code' => $part_code,
+                        ':part_name' => $part_name,
+                        ':qty'       => $qty
+                    ]);
+                }
 
                 $stmtLog->execute([
                     ':user_id'    => $_SESSION['user_id'] ?? 1,
@@ -142,10 +174,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $oldTrx = $stmtOld->fetch();
 
             if ($oldTrx) {
-                $selisih = $new_qty - $oldTrx['qty'];
+                if ($new_qty < 0) {
+                    throw new Exception('Qty baru tidak boleh kurang dari 0.');
+                }
 
-                $stmtUpdateStok = $pdo->prepare("UPDATE stok_pp SET qty_press = qty_press + :selisih WHERE part_code = :part_code");
-                $stmtUpdateStok->execute([':selisih' => $selisih, ':part_code' => $oldTrx['part_code']]);
+                $selisih = $new_qty - (int)$oldTrx['qty'];
+
+                if ($oldTrx['part_code'] === 'BASEPAN-ASSY') {
+                    // Edit Base Pan Assy: selisih positif memakai Base Pan tambahan;
+                    // selisih negatif mengembalikan Base Pan ke stok asal.
+                    $stmtCekBasePan = $pdo->prepare(
+                        "SELECT qty_press FROM stok_pp WHERE part_code = :code FOR UPDATE"
+                    );
+                    $stmtCekBasePan->execute([':code' => 'LCHS-A800JBPZ']);
+                    $stokBasePan = $stmtCekBasePan->fetchColumn();
+
+                    if ($selisih > 0 && ($stokBasePan === false || (int)$stokBasePan < $selisih)) {
+                        throw new Exception('Stok Base Pan tidak mencukupi untuk penambahan Qty transaksi.');
+                    }
+
+                    // Pastikan stok Base Pan Assy ada.
+                    $stmtPastikanAssy = $pdo->prepare(
+                        "INSERT INTO stok_pp (part_code, part_name, qty_press) VALUES ('BASEPAN-ASSY', 'Base Pan Assy', 0) ON DUPLICATE KEY UPDATE part_name = VALUES(part_name)"
+                    );
+                    $stmtPastikanAssy->execute();
+
+                    // Jika Qty transaksi dikurangi, stok Assy harus cukup untuk dikembalikan.
+                    if ($selisih < 0) {
+                        $stmtCekAssy = $pdo->prepare(
+                            "SELECT qty_press FROM stok_pp WHERE part_code = 'BASEPAN-ASSY' FOR UPDATE"
+                        );
+                        $stmtCekAssy->execute();
+                        $stokAssySekarang = (int)$stmtCekAssy->fetchColumn();
+                        if ($stokAssySekarang < abs($selisih)) {
+                            throw new Exception('Stok Base Pan Assy tidak mencukupi untuk mengurangi Qty transaksi.');
+                        }
+                    }
+
+                    $stmtUpdateBasePan = $pdo->prepare(
+                        "UPDATE stok_pp SET qty_press = qty_press - :selisih WHERE part_code = 'LCHS-A800JBPZ'"
+                    );
+                    $stmtUpdateBasePan->execute([':selisih' => $selisih]);
+
+                    $stmtUpdateAssy = $pdo->prepare(
+                        "UPDATE stok_pp SET qty_press = qty_press + :selisih WHERE part_code = 'BASEPAN-ASSY'"
+                    );
+                    $stmtUpdateAssy->execute([':selisih' => $selisih]);
+                } else {
+                    $stmtUpdateStok = $pdo->prepare("UPDATE stok_pp SET qty_press = qty_press + :selisih WHERE part_code = :part_code");
+                    $stmtUpdateStok->execute([':selisih' => $selisih, ':part_code' => $oldTrx['part_code']]);
+                }
 
                 $stmtUpdateLog = $pdo->prepare("UPDATE stock_transactions SET qty = :qty, shift = :shift, production_date = :prod_date WHERE id = :id");
                 $stmtUpdateLog->execute([
@@ -192,8 +270,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $oldTrx = $stmtOld->fetch();
 
             if ($oldTrx) {
-                $stmtSubStok = $pdo->prepare("UPDATE stok_pp SET qty_press = qty_press - :qty WHERE part_code = :part_code");
-                $stmtSubStok->execute([':qty' => $oldTrx['qty'], ':part_code' => $oldTrx['part_code']]);
+                if ($oldTrx['part_code'] === 'BASEPAN-ASSY') {
+                    // Hapus transaksi Base Pan Assy: stok Assy dikurangi,
+                    // lalu qty dikembalikan ke stok Base Pan.
+                    $stmtCekAssy = $pdo->prepare(
+                        "SELECT qty_press FROM stok_pp WHERE part_code = :code FOR UPDATE"
+                    );
+                    $stmtCekAssy->execute([':code' => 'BASEPAN-ASSY']);
+                    $stokAssy = $stmtCekAssy->fetchColumn();
+
+                    if ($stokAssy === false || (int)$stokAssy < (int)$oldTrx['qty']) {
+                        throw new Exception('Stok Base Pan Assy tidak mencukupi untuk menghapus transaksi ini. Periksa transaksi terkait terlebih dahulu.');
+                    }
+
+                    $stmtKurangiAssy = $pdo->prepare(
+                        "UPDATE stok_pp SET qty_press = qty_press - :qty WHERE part_code = 'BASEPAN-ASSY'"
+                    );
+                    $stmtKurangiAssy->execute([':qty' => $oldTrx['qty']]);
+
+                    $stmtKembalikanBasePan = $pdo->prepare(
+                        "UPDATE stok_pp SET qty_press = qty_press + :qty WHERE part_code = 'LCHS-A800JBPZ'"
+                    );
+                    $stmtKembalikanBasePan->execute([':qty' => $oldTrx['qty']]);
+                } else {
+                    $stmtSubStok = $pdo->prepare("UPDATE stok_pp SET qty_press = qty_press - :qty WHERE part_code = :part_code");
+                    $stmtSubStok->execute([':qty' => $oldTrx['qty'], ':part_code' => $oldTrx['part_code']]);
+                }
 
                 $stmtDel = $pdo->prepare("DELETE FROM stock_transactions WHERE id = :id");
                 $stmtDel->execute([':id' => $id_trx]);

@@ -50,7 +50,7 @@ $currentShift = getShift(date('H:i', strtotime($now)));
 $parts_paint = [
     ['code' => 'GCAB-A646JBPZ', 'display_code' => 'GCAB-A646JBTA', 'name' => 'Top Table'],
     ['code' => 'GCAB-A767JBPZ', 'display_code' => 'GCAB-A767JBTA', 'name' => 'Front Panel'],
-    ['code' => 'LCHS-A800JBPZ', 'display_code' => 'CCHS-B829JBTA', 'name' => 'Base Pan'],
+    ['code' => 'BASEPAN-ASSY', 'display_code' => 'CCHS-B829JBTA', 'name' => 'Base Pan'],
     ['code' => 'PPLT-B282JBPZ', 'display_code' => 'PPLT-B282JBTA', 'name' => 'Side Cover R']
 ];
 
