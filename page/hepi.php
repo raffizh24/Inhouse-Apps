@@ -42,7 +42,8 @@ $currentShift = $currentShift ?? (
 
 // 1. Data Master Part
 $parts_he = [
-    ['code' => 'PEVA-B161JBPZ', 'name' => 'Evaporator'],
+    ['code' => 'PEVA-B161JBPZ', 'name' => 'Evaporator 2 Path'],
+    ['code' => 'PEVA-B251JBEZ', 'name' => 'Evaporator 1 Path'],
     ['code' => 'DCON-B070JBEZ', 'name' => 'Condensor SR Normal'],
     ['code' => 'DCON-B105JBEZ', 'name' => 'Condensor DR Normal'],
     ['code' => 'DCON-B074JBEZ', 'name' => 'Condensor SR Inverter'],
